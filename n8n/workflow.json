@@ -1,0 +1,81 @@
+{
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lead-outreach",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "c58f467a-b822-48f1-ab14-3716332ae8a5",
+      "name": "Webhook Trigger",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [400, -96],
+      "webhookId": "c2e9e9bd-a151-4aa5-966f-b1359fb38f90"
+    },
+    {
+      "parameters": {
+        "jsCode": "const body = $input.first().json.body || $input.first().json;\nreturn [{ json: { leadId: body.leadId, type: body.type || 'initial' } }];\n"
+      },
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [608, -80],
+      "id": "051f8934-a022-47d1-a8e9-7a676ed3b0f5",
+      "name": "Code in JavaScript"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "http://localhost:3000/api/send-outreach",
+        "sendHeaders": true,
+        "headerParameters": {
+          "parameters": [
+            { "name": "x-n8n-secret", "value": "boorgen_n8n_secret_2026" },
+            { "name": "Content-Type", "value": "application/json" }
+          ]
+        },
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            { "name": "leadId", "value": "={{ $json.leadId }}" },
+            { "name": "type", "value": "={{ $json.type }}" }
+          ]
+        },
+        "options": { "timeout": 60000 }
+      },
+      "id": "5ce397ff-028b-46e0-9f88-ec5b9e43609c",
+      "name": "Send Outreach (Groq + Gmail)",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [896, -96]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={ \"status\": \"ok\" }",
+        "options": {}
+      },
+      "id": "20fe1acf-b9cb-41b4-ae27-3d210606c61a",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1168, -96]
+    }
+  ],
+  "connections": {
+    "Webhook Trigger": {
+      "main": [[{ "node": "Code in JavaScript", "type": "main", "index": 0 }]]
+    },
+    "Code in JavaScript": {
+      "main": [[{ "node": "Send Outreach (Groq + Gmail)", "type": "main", "index": 0 }]]
+    },
+    "Send Outreach (Groq + Gmail)": {
+      "main": [[{ "node": "Webhook Response", "type": "main", "index": 0 }]]
+    }
+  },
+  "pinData": {},
+  "meta": {
+    "instanceId": "1f28b04351a3af32407538d1996a57efcac376421ba599a723feefbf9e498aa6"
+  }
+}
