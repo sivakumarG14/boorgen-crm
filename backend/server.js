@@ -5,6 +5,7 @@ const mongoose = require('mongoose');
 
 const authRoutes = require('./routes/auth');
 const leadRoutes = require('./routes/leads');
+const funnelRoutes = require('./routes/funnel');
 
 const app = express();
 
@@ -29,6 +30,7 @@ app.use(express.json());
 // Routes
 app.use('/api', authRoutes);
 app.use('/api', leadRoutes);
+app.use('/api/funnel', funnelRoutes);
 
 // Health check
 app.get('/health', (req, res) => res.json({ status: 'ok' }));
@@ -41,6 +43,13 @@ mongoose
     app.listen(process.env.PORT || 3000, () =>
       console.log(`Server running on port ${process.env.PORT || 3000}`)
     );
+
+    // Run funnel scheduler every hour
+    const { runScheduler } = require('./services/funnel');
+    setInterval(() => {
+      runScheduler().catch((err) => console.error('Scheduler error:', err.message));
+    }, 60 * 60 * 1000);
+    console.log('Funnel scheduler started (runs every hour)');
   })
   .catch((err) => {
     console.error('MongoDB connection error:', err.message);

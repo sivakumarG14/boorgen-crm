@@ -11,11 +11,11 @@ const transporter = nodemailer.createTransport({
 /**
  * Sends an email with retry logic (max 2 retries).
  */
-async function sendEmail({ to, hotel, body }, retries = 2) {
+async function sendEmail({ to, hotel, body, subject }, retries = 2) {
   const mailOptions = {
     from: `BOORGEN Outreach <${process.env.GMAIL_USER}>`,
     to,
-    subject: `Quick idea for ${hotel}`,
+    subject: subject || `Quick idea for ${hotel}`,
     text: body,
   };
 

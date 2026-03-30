@@ -10,14 +10,18 @@ const { sendEmail } = require('../services/mailer');
 // POST /api/add-lead
 router.post('/add-lead', auth, async (req, res) => {
   try {
-    const { name, email, hotel, location, notes } = req.body;
+    const { name, email, hotel, location, notes, language } = req.body;
     if (!name || !email || !hotel || !location) {
       return res.status(400).json({ error: 'Missing required fields' });
     }
 
-    const lead = await Lead.create({ name, email, hotel, location, notes });
+    const lead = await Lead.create({ name, email, hotel, location, notes, language: language || 'de' });
 
-    // Trigger n8n webhook — n8n runs Code node → send-outreach → Groq + Gmail
+    // FLOW 1: Send cold contact email immediately
+    const { flow1_entry } = require('../services/funnel');
+    flow1_entry(lead).catch((err) => console.error('Flow 1 error:', err.message));
+
+    // Also trigger n8n webhook (optional, non-blocking)
     triggerWebhook({
       name, email, hotel, location,
       leadId: lead._id.toString(),
@@ -74,10 +78,13 @@ router.post('/update-lead', auth, async (req, res) => {
 router.get('/stats', auth, async (req, res) => {
   try {
     const total = await Lead.countDocuments();
-    const contacted = await Lead.countDocuments({ status: 'Contacted' });
-    const failed = await Lead.countDocuments({ status: 'Failed' });
-    const newLeads = await Lead.countDocuments({ status: 'New' });
-    res.json({ total, contacted, failed, new: newLeads });
+    const cold = await Lead.countDocuments({ status: 'Cold' });
+    const engaged = await Lead.countDocuments({ status: 'Engaged' });
+    const microCommitment = await Lead.countDocuments({ status: 'Micro-Commitment' });
+    const callScheduled = await Lead.countDocuments({ status: 'Call Scheduled' });
+    const noInterest = await Lead.countDocuments({ status: 'No Interest' });
+    const highPriority = await Lead.countDocuments({ score: { $gte: 40 } });
+    res.json({ total, cold, engaged, microCommitment, callScheduled, noInterest, highPriority });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
@@ -116,7 +123,7 @@ router.post('/send-outreach', async (req, res) => {
     const result = await sendEmail({ to: lead.email, hotel: lead.hotel, body: emailBody });
 
     if (result.success) {
-      lead.status = 'Contacted';
+      lead.status = 'Engaged';
       lead.notes = `Email sent on ${new Date().toISOString()}`;
       await lead.save();
       return res.json({ message: 'Email sent and lead updated', lead });

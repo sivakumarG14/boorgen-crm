@@ -112,9 +112,14 @@ export default function Dashboard() {
             style={{ width: 160, background: 'var(--bg2)' }}
           >
             <option value="">All Statuses</option>
-            <option value="New">New</option>
-            <option value="Contacted">Contacted</option>
-            <option value="Failed">Failed</option>
+            <option value="Cold">Cold</option>
+            <option value="Engaged">Engaged</option>
+            <option value="Micro-Commitment">Micro-Commitment</option>
+            <option value="Qualified">Qualified</option>
+            <option value="Call Scheduled">Call Scheduled</option>
+            <option value="No Interest">No Interest</option>
+            <option value="Cold – Re-Engage">Cold – Re-Engage</option>
+            <option value="Closed / Lost">Closed / Lost</option>
           </select>
           {(search || statusFilter) && (
             <button className="btn-ghost" onClick={() => { setSearch(''); setStatus(''); }} style={{ height: 42, padding: '0 16px' }}>
