@@ -21,9 +21,9 @@ const server = http.createServer(app);
 const allowedOrigins = [
   'http://localhost:5173',
   'http://localhost:4173',
+  'https://boorgen-crm.netlify.app', 
   process.env.FRONTEND_URL,
 ].filter(Boolean);
-
 // Socket.io
 const io = new Server(server, {
   cors: {
