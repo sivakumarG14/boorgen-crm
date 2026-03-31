@@ -3,6 +3,7 @@ const router = express.Router();
 const jwt = require('jsonwebtoken');
 const auth = require('../middleware/auth');
 const Lead = require('../models/Lead');
+const { emit } = require('../services/socket');
 const { triggerWebhook } = require('../services/webhook');
 const { generateEmail } = require('../services/groq');
 const { sendEmail } = require('../services/mailer');
@@ -17,11 +18,20 @@ router.post('/add-lead', auth, async (req, res) => {
 
     const lead = await Lead.create({ name, email, hotel, location, notes, language: language || 'de' });
 
-    // FLOW 1: Send cold contact email immediately
+    // FLOW 1: Send cold contact email immediately (non-blocking)
     const { flow1_entry } = require('../services/funnel');
     flow1_entry(lead).catch((err) => console.error('Flow 1 error:', err.message));
 
-    // Also trigger n8n webhook (optional, non-blocking)
+    // Emit real-time event
+    emit('leadAdded', {
+      leadId: lead._id,
+      name: lead.name,
+      hotel: lead.hotel,
+      status: lead.status,
+      score: lead.score,
+    });
+
+    // n8n webhook (optional, non-blocking)
     triggerWebhook({
       name, email, hotel, location,
       leadId: lead._id.toString(),
@@ -60,13 +70,21 @@ router.get('/leads', auth, async (req, res) => {
 // POST /api/update-lead
 router.post('/update-lead', auth, async (req, res) => {
   try {
-    const { leadId, status, notes } = req.body;
+    const { leadId, name, email, hotel, location, language, status, notes, score } = req.body;
     if (!leadId) return res.status(400).json({ error: 'leadId required' });
     const update = {};
-    if (status) update.status = status;
+    if (name)              update.name = name;
+    if (email)             update.email = email;
+    if (hotel)             update.hotel = hotel;
+    if (location)          update.location = location;
+    if (language)          update.language = language;
+    if (status)            update.status = status;
     if (notes !== undefined) update.notes = notes;
+    if (score !== undefined) update.score = Number(score);
     const lead = await Lead.findByIdAndUpdate(leadId, update, { new: true });
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+
+    emit('leadUpdated', { leadId: lead._id, status: lead.status, score: lead.score });
     res.json({ message: 'Lead updated', lead });
   } catch (err) {
     console.error('update-lead error:', err.message);
@@ -77,21 +95,23 @@ router.post('/update-lead', auth, async (req, res) => {
 // GET /api/stats
 router.get('/stats', auth, async (req, res) => {
   try {
-    const total = await Lead.countDocuments();
-    const cold = await Lead.countDocuments({ status: 'Cold' });
-    const engaged = await Lead.countDocuments({ status: 'Engaged' });
-    const microCommitment = await Lead.countDocuments({ status: 'Micro-Commitment' });
-    const callScheduled = await Lead.countDocuments({ status: 'Call Scheduled' });
-    const noInterest = await Lead.countDocuments({ status: 'No Interest' });
-    const highPriority = await Lead.countDocuments({ score: { $gte: 40 } });
+    const [total, cold, engaged, microCommitment, callScheduled, noInterest, highPriority] =
+      await Promise.all([
+        Lead.countDocuments(),
+        Lead.countDocuments({ status: 'Cold' }),
+        Lead.countDocuments({ status: 'Engaged' }),
+        Lead.countDocuments({ status: 'Micro-Commitment' }),
+        Lead.countDocuments({ status: 'Call Scheduled' }),
+        Lead.countDocuments({ status: 'No Interest' }),
+        Lead.countDocuments({ score: { $gte: 40 } }),
+      ]);
     res.json({ total, cold, engaged, microCommitment, callScheduled, noInterest, highPriority });
   } catch (err) {
     res.status(500).json({ error: 'Failed to fetch stats' });
   }
 });
 
-// POST /api/send-outreach
-// Called by n8n (x-n8n-secret) or dashboard (JWT)
+// POST /api/send-outreach — called by n8n or dashboard
 router.post('/send-outreach', async (req, res) => {
   const secret = req.headers['x-n8n-secret'];
   const authHeader = req.headers.authorization;
@@ -103,7 +123,7 @@ router.post('/send-outreach', async (req, res) => {
     try {
       jwt.verify(authHeader.split(' ')[1], process.env.JWT_SECRET);
       authorized = true;
-    } catch {}
+    } catch { }
   }
   if (!authorized) return res.status(401).json({ error: 'Unauthorized' });
 
@@ -120,27 +140,24 @@ router.post('/send-outreach', async (req, res) => {
       location: lead.location, type,
     });
 
-    const result = await sendEmail({ to: lead.email, hotel: lead.hotel, body: emailBody });
+    const result = await sendEmail({ to: lead.email, hotel: lead.hotel, body: emailBody, trackingId: lead.trackingId });
 
     if (result.success) {
       lead.status = 'Engaged';
       lead.notes = `Email sent on ${new Date().toISOString()}`;
       await lead.save();
+      emit('leadUpdated', { leadId: lead._id, status: lead.status });
       return res.json({ message: 'Email sent and lead updated', lead });
     } else {
-      lead.status = 'Failed';
-      lead.notes = `Email failed: ${result.error}`;
-      await lead.save();
       return res.status(500).json({ error: 'Email sending failed', detail: result.error });
     }
   } catch (err) {
     console.error('send-outreach error:', err.message);
-    if (lead) await Lead.findByIdAndUpdate(leadId, { status: 'Failed', notes: `Error: ${err.message}` });
     return res.status(500).json({ error: 'Outreach process failed', detail: err.message });
   }
 });
 
-// POST /api/n8n-update-lead — called by n8n with shared secret
+// POST /api/n8n-update-lead
 router.post('/n8n-update-lead', async (req, res) => {
   const secret = req.headers['x-n8n-secret'];
   if (!process.env.N8N_SECRET || secret !== process.env.N8N_SECRET) {
@@ -154,6 +171,7 @@ router.post('/n8n-update-lead', async (req, res) => {
     if (notes !== undefined) update.notes = notes;
     const lead = await Lead.findByIdAndUpdate(leadId, update, { new: true });
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    emit('leadUpdated', { leadId: lead._id, status: lead.status });
     res.json({ message: 'Lead updated', lead });
   } catch (err) {
     res.status(500).json({ error: 'Failed to update lead' });
@@ -165,6 +183,7 @@ router.delete('/delete-lead/:id', auth, async (req, res) => {
   try {
     const lead = await Lead.findByIdAndDelete(req.params.id);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
+    emit('leadUpdated', { leadId: req.params.id, deleted: true });
     res.json({ message: 'Lead deleted' });
   } catch (err) {
     res.status(500).json({ error: 'Failed to delete lead' });

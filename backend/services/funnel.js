@@ -1,12 +1,25 @@
+const { v4: uuidv4 } = require('uuid');
 const Lead = require('../models/Lead');
 const { sendEmail } = require('./mailer');
 const { getTemplate } = require('./templates');
+const { emit } = require('./socket');
 const nodemailer = require('nodemailer');
 
-const ANA_EMAIL = 'anaramonavasar12@gmail.com';
+const ANA_EMAIL = process.env.ANA_EMAIL || 'anaramonavasar12@gmail.com';
 
 // Score increments
-const SCORE = { reply: 10, linkClick: 15, configurator: 20, address: 30 };
+const SCORE = { reply: 10, replyYes: 20, linkClick: 10, emailOpen: 5, address: 30, callScheduled: 20 };
+
+/**
+ * Ensure lead has a trackingId.
+ */
+async function ensureTrackingId(lead) {
+  if (!lead.trackingId) {
+    lead.trackingId = uuidv4();
+    await lead.save();
+  }
+  return lead.trackingId;
+}
 
 /**
  * Send a funnel email and update lead tracking fields.
@@ -16,7 +29,10 @@ async function sendFunnelEmail(lead, templateType) {
   const { subject, text } = getTemplate(templateType, lang, {
     name: lead.name, hotel: lead.hotel, location: lead.location,
   });
-  const result = await sendEmail({ to: lead.email, hotel: lead.hotel, body: text, subject });
+
+  const trackingId = await ensureTrackingId(lead);
+  const result = await sendEmail({ to: lead.email, hotel: lead.hotel, body: text, subject, trackingId });
+
   lead.lastEmailSent = templateType;
   lead.lastEmailDate = new Date();
   await lead.save();
@@ -48,107 +64,108 @@ async function flow1_entry(lead) {
   lead.flow = 1;
   lead.status = 'Cold';
   await lead.save();
+
+  emit('leadAdded', {
+    leadId: lead._id,
+    name: lead.name,
+    hotel: lead.hotel,
+    status: lead.status,
+    score: lead.score,
+  });
+
   console.log(`FLOW 1: Cold contact sent to ${lead.email}`);
 }
 
-/**
- * FLOW 2: After Reminder 1 — send trust building email.
- */
 async function flow2_reminder1(lead) {
   await sendFunnelEmail(lead, 'reminder_1');
   lead.flow = 2;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
   console.log(`FLOW 2: Reminder 1 sent to ${lead.email}`);
 }
 
-/**
- * FLOW 3: Trust Building email.
- */
 async function flow3_trustBuilding(lead) {
   await sendFunnelEmail(lead, 'trust_building');
   lead.flow = 3;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
   console.log(`FLOW 3: Trust building sent to ${lead.email}`);
 }
 
-/**
- * FLOW 4: Reminder 2 — self-service.
- */
 async function flow4_reminder2(lead) {
   await sendFunnelEmail(lead, 'reminder_2');
   lead.flow = 4;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
   console.log(`FLOW 4: Reminder 2 sent to ${lead.email}`);
 }
 
-/**
- * FLOW 4: Behavior trigger — lead clicked link.
- */
 async function flow4_behaviorTrigger(lead) {
   lead.score += SCORE.linkClick;
   lead.status = 'Engaged';
   await sendFunnelEmail(lead, 'behavior_trigger');
   await notifyAna(lead, 'Lead clicked configurator link — immediate follow-up needed');
   await lead.save();
+
+  emit('linkClicked', {
+    leadId: lead._id,
+    name: lead.name,
+    hotel: lead.hotel,
+    score: lead.score,
+    status: lead.status,
+  });
+
   console.log(`FLOW 4: Behavior trigger for ${lead.email}`);
 }
 
-/**
- * FLOW 5: Qualification — guide to send address.
- */
 async function flow5_requestAddress(lead) {
   await sendFunnelEmail(lead, 'qualification_address');
   lead.flow = 5;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
 }
 
-/**
- * FLOW 5: Qualification — SPIN logic for questions.
- */
 async function flow5_spin(lead) {
   await sendFunnelEmail(lead, 'qualification_spin');
   lead.flow = 5;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
 }
 
-/**
- * FLOW 6: Call preparation — warm-up email 1 day before.
- */
 async function flow6_callWarmup(lead) {
   await sendFunnelEmail(lead, 'call_warmup');
   lead.flow = 6;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
   console.log(`FLOW 6: Call warm-up sent to ${lead.email}`);
 }
 
-/**
- * FLOW 8: Re-engagement after 90 days.
- */
 async function flow8_reEngage(lead) {
   await sendFunnelEmail(lead, 're_engagement');
   lead.flow = 8;
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status, flow: lead.flow });
   console.log(`FLOW 8: Re-engagement sent to ${lead.email}`);
 }
 
-/**
- * Send cold exit email and set status.
- */
 async function sendColdExit(lead) {
   await sendFunnelEmail(lead, 'cold_exit');
   lead.status = 'No Interest';
   await lead.save();
+  emit('leadUpdated', { leadId: lead._id, status: lead.status });
   console.log(`Cold exit sent to ${lead.email}`);
 }
 
 /**
- * Process a reply from a lead — the core IF/ELSE state machine.
+ * Process a reply — core IF/ELSE state machine.
  * replyType: 'yes' | 'no' | 'address' | 'question' | 'later'
  */
 async function processReply(lead, replyType, replyText = '') {
   lead.replyReceived = true;
   lead.replyType = replyType;
-  lead.score += SCORE.reply;
+
+  // Score: yes/question = +20, others = +10
+  lead.score += (replyType === 'yes' || replyType === 'question') ? SCORE.replyYes : SCORE.reply;
 
   if (replyType === 'no') {
     await sendColdExit(lead);
@@ -159,6 +176,7 @@ async function processReply(lead, replyType, replyText = '') {
     lead.status = 'Cold – Re-Engage';
     lead.reEngageAfter = new Date(Date.now() + 90 * 24 * 60 * 60 * 1000);
     await lead.save();
+    emit('leadUpdated', { leadId: lead._id, status: lead.status, score: lead.score });
     return;
   }
 
@@ -168,6 +186,7 @@ async function processReply(lead, replyType, replyText = '') {
     lead.score += SCORE.address;
     await notifyAna(lead, 'Lead sent address — property analysis needed (30% rule)');
     await lead.save();
+    emit('leadUpdated', { leadId: lead._id, status: lead.status, score: lead.score });
     return;
   }
 
@@ -177,13 +196,14 @@ async function processReply(lead, replyType, replyText = '') {
     if (replyType === 'question') {
       await flow5_spin(lead);
     } else {
-      // Guide to send address
       await flow5_requestAddress(lead);
     }
 
     if (lead.flow >= 3) {
       await notifyAna(lead, `Lead replied (${replyType}) — follow-up needed`);
     }
+
+    emit('leadUpdated', { leadId: lead._id, status: lead.status, score: lead.score });
     return;
   }
 
@@ -191,8 +211,27 @@ async function processReply(lead, replyType, replyText = '') {
 }
 
 /**
+ * Schedule a call: set callDate, status, score +20, emit event.
+ */
+async function scheduleCall(lead, callDate) {
+  lead.status = 'Call Scheduled';
+  lead.callDate = new Date(callDate);
+  lead.score += SCORE.callScheduled;
+  await lead.save();
+
+  emit('callScheduled', {
+    leadId: lead._id,
+    name: lead.name,
+    hotel: lead.hotel,
+    callDate: lead.callDate,
+    score: lead.score,
+  });
+
+  console.log(`Call scheduled for ${lead.email} on ${lead.callDate}`);
+}
+
+/**
  * Scheduler: check all leads and trigger time-based flows.
- * Call this periodically (e.g. every hour via cron).
  */
 async function runScheduler() {
   const now = new Date();
@@ -214,13 +253,11 @@ async function processScheduledLead(lead, now) {
 
   const daysSinceEmail = (now - lead.lastEmailDate) / (1000 * 60 * 60 * 24);
 
-  // Re-engagement check (90 days)
   if (lead.status === 'Cold – Re-Engage' && lead.reEngageAfter && now >= lead.reEngageAfter) {
     await flow8_reEngage(lead);
     return;
   }
 
-  // Call warm-up: 1 day before scheduled call
   if (lead.status === 'Call Scheduled' && lead.callDate) {
     const daysToCall = (lead.callDate - now) / (1000 * 60 * 60 * 24);
     if (daysToCall <= 1 && daysToCall > 0 && lead.lastEmailSent !== 'call_warmup') {
@@ -229,27 +266,23 @@ async function processScheduledLead(lead, now) {
     }
   }
 
-  if (lead.replyReceived) return; // Don't auto-follow-up if they replied
+  if (lead.replyReceived) return;
 
-  // FLOW 1 → Reminder 1 after 4-5 days
   if (lead.flow === 1 && lead.lastEmailSent === 'cold_contact' && daysSinceEmail >= 4) {
     await flow2_reminder1(lead);
     return;
   }
 
-  // FLOW 2 → Trust building after 3-5 more days
   if (lead.flow === 2 && lead.lastEmailSent === 'reminder_1' && daysSinceEmail >= 3) {
     await flow3_trustBuilding(lead);
     return;
   }
 
-  // FLOW 3 → Reminder 2 after 5-7 days
   if (lead.flow === 3 && lead.lastEmailSent === 'trust_building' && daysSinceEmail >= 5) {
     await flow4_reminder2(lead);
     return;
   }
 
-  // FLOW 4 → Cold exit after 10-15 days
   if (lead.flow === 4 && lead.lastEmailSent === 'reminder_2' && daysSinceEmail >= 10) {
     await sendColdExit(lead);
     lead.status = 'Cold – Re-Engage';
@@ -271,6 +304,8 @@ module.exports = {
   flow8_reEngage,
   sendColdExit,
   processReply,
+  scheduleCall,
   runScheduler,
   notifyAna,
+  ensureTrackingId,
 };

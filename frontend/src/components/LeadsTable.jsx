@@ -1,235 +1,437 @@
 import React, { useState } from 'react';
+import { createPortal } from 'react-dom';
 import api from '../api';
 
 const STATUS_STYLE = {
-  'Cold':             { color: '#94a3b8', bg: 'rgba(148,163,184,0.12)' },
-  'Engaged':          { color: '#f59e0b', bg: 'rgba(245,158,11,0.12)'  },
-  'Micro-Commitment': { color: '#8b5cf6', bg: 'rgba(139,92,246,0.12)'  },
-  'Qualified':        { color: '#22c55e', bg: 'rgba(34,197,94,0.12)'   },
-  'Call Scheduled':   { color: '#06b6d4', bg: 'rgba(6,182,212,0.12)'   },
-  'No Interest':      { color: '#ef4444', bg: 'rgba(239,68,68,0.12)'   },
-  'Cold – Re-Engage': { color: '#f97316', bg: 'rgba(249,115,22,0.12)'  },
-  'Closed / Lost':    { color: '#475569', bg: 'rgba(71,85,105,0.12)'   },
+  'Cold': { color: '#8895a7', bg: 'rgba(136,149,167,0.1)', icon: 'ac_unit' },
+  'Engaged': { color: '#e8b84a', bg: 'rgba(232,184,74,0.1)', icon: 'forum' },
+  'Micro-Commitment': { color: '#9a6ef5', bg: 'rgba(154,110,245,0.1)', icon: 'verified' },
+  'Qualified': { color: '#3ec97a', bg: 'rgba(62,201,122,0.1)', icon: 'star' },
+  'Call Scheduled': { color: '#40c4c4', bg: 'rgba(64,196,196,0.1)', icon: 'event' },
+  'No Interest': { color: '#e85454', bg: 'rgba(232,84,84,0.1)', icon: 'block' },
+  'Cold – Re-Engage': { color: '#e89040', bg: 'rgba(232,144,64,0.1)', icon: 'replay' },
+  'Closed / Lost': { color: '#5a5347', bg: 'rgba(90,83,71,0.1)', icon: 'cancel' },
 };
 
 const REPLY_TYPES = [
-  { value: 'yes',     label: '✓ Yes / Interested' },
-  { value: 'no',      label: '✕ No / Not interested' },
-  { value: 'address', label: '📍 Sent address' },
-  { value: 'question',label: '❓ Asked question' },
-  { value: 'later',   label: '⏳ Maybe later' },
+  { value: 'yes', label: 'Ja / Interessiert' },
+  { value: 'no', label: 'Nein / Kein Interesse' },
+  { value: 'address', label: 'Adresse gesendet' },
+  { value: 'question', label: 'Frage gestellt' },
+  { value: 'later', label: 'Vielleicht später' },
+];
+
+const EDIT_FIELDS = [
+  { key: 'name',     label: 'Kontaktname',    icon: 'person',      type: 'text' },
+  { key: 'email',    label: 'E-Mail',          icon: 'mail',        type: 'email' },
+  { key: 'hotel',    label: 'Hotelname',       icon: 'hotel',       type: 'text' },
+  { key: 'location', label: 'Standort',        icon: 'location_on', type: 'text' },
+  { key: 'score',    label: 'Score',           icon: 'analytics',   type: 'number' },
+  { key: 'notes',    label: 'Notizen',         icon: 'edit_note',   type: 'text' },
 ];
 
 export default function LeadsTable({ leads, onUpdated }) {
-  const [editing, setEditing]     = useState(null);
-  const [editData, setEditData]   = useState({});
-  const [saving, setSaving]       = useState(false);
+  const [editModal, setEditModal]   = useState(null); // full lead object
+  const [editData, setEditData]     = useState({});
+  const [saving, setSaving]         = useState(false);
   const [replyModal, setReplyModal] = useState(null);
-  const [replyType, setReplyType] = useState('yes');
-  const [deleting, setDeleting]   = useState(null);
-  const [callModal, setCallModal] = useState(null);
-  const [callDate, setCallDate]   = useState('');
+  const [replyType, setReplyType]   = useState('yes');
+  const [deleting, setDeleting]     = useState(null);
+  const [callModal, setCallModal]   = useState(null);
+  const [callDate, setCallDate]     = useState('');
 
-  const saveEdit = async (id) => {
+  const openEdit = (lead) => {
+    setEditModal(lead);
+    setEditData({
+      name: lead.name || '',
+      email: lead.email || '',
+      hotel: lead.hotel || '',
+      location: lead.location || '',
+      language: lead.language || 'de',
+      status: lead.status || 'Cold',
+      score: lead.score ?? 0,
+      notes: lead.notes || '',
+    });
+  };
+
+  const saveEdit = async () => {
     setSaving(true);
     try {
-      await api.post('/update-lead', { leadId: id, ...editData });
-      setEditing(null); onUpdated();
-    } catch (err) { alert(err.response?.data?.error || 'Update failed'); }
-    finally { setSaving(false); }
+      await api.post('/update-lead', { leadId: editModal._id, ...editData });
+      setEditModal(null);
+      onUpdated();
+    } catch (err) {
+      alert(err.response?.data?.error || 'Aktualisierung fehlgeschlagen');
+    } finally {
+      setSaving(false);
+    }
   };
 
   const handleReply = async () => {
     try {
       await api.post('/funnel/reply', { leadId: replyModal, replyType });
       setReplyModal(null); onUpdated();
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
+    } catch (err) { alert(err.response?.data?.error || 'Fehlgeschlagen'); }
   };
 
   const handleLinkClick = async (leadId) => {
-    try {
-      await api.post('/funnel/link-click', { leadId });
-      onUpdated();
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
+    try { await api.post('/funnel/link-click', { leadId }); onUpdated(); }
+    catch (err) { alert(err.response?.data?.error || 'Fehlgeschlagen'); }
   };
 
   const handleScheduleCall = async () => {
     try {
       await api.post('/funnel/schedule-call', { leadId: callModal, callDate });
       setCallModal(null); onUpdated();
-    } catch (err) { alert(err.response?.data?.error || 'Failed'); }
+    } catch (err) { alert(err.response?.data?.error || 'Fehlgeschlagen'); }
   };
 
   const handleNotifyAna = async (leadId) => {
     try {
-      await api.post('/funnel/notify-ana', { leadId, message: 'Manual notification from CRM dashboard' });
-      alert('Ana notified!');
-    } catch (err) { alert('Failed to notify Ana'); }
+      await api.post('/funnel/notify-ana', { leadId, message: 'Manuelle Benachrichtigung vom CRM Dashboard' });
+      alert('Ana wurde benachrichtigt!');
+    } catch { alert('Benachrichtigung an Ana fehlgeschlagen'); }
   };
 
   const handleDelete = async (lead) => {
-    if (!window.confirm(`Delete "${lead.name}"?`)) return;
+    if (!window.confirm(`"${lead.name}" löschen?`)) return;
     setDeleting(lead._id);
-    try {
-      await api.delete(`/delete-lead/${lead._id}`); onUpdated();
-    } catch (err) { alert(err.response?.data?.error || 'Delete failed'); }
+    try { await api.delete(`/delete-lead/${lead._id}`); onUpdated(); }
+    catch (err) { alert(err.response?.data?.error || 'Löschen fehlgeschlagen'); }
     finally { setDeleting(null); }
   };
 
-  if (!leads.length) {
-    return (
-      <div style={s.empty}>
-        <p style={{ fontSize: 28, marginBottom: 10 }}>◈</p>
-        <p style={{ color: 'var(--text2)', fontWeight: 600 }}>No leads yet</p>
-        <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 4 }}>Add your first lead to start the funnel</p>
+  if (!leads.length) return (
+    <div style={s.empty}>
+      <div style={s.emptyIcon}>
+        <span className="material-symbols-outlined" style={{ fontSize: 40, color: 'var(--brand-gold)', opacity: 0.4 }}>inbox</span>
       </div>
-    );
-  }
+      <p style={{ color: 'var(--text2)', fontWeight: 600, fontSize: 15, fontFamily: "'Outfit',sans-serif" }}>Noch keine Leads</p>
+      <p style={{ color: 'var(--text3)', fontSize: 13, marginTop: 6 }}>Fügen Sie Ihren ersten Lead hinzu, um den Funnel zu starten</p>
+    </div>
+  );
 
   return (
     <>
-      {/* Reply Modal */}
-      {replyModal && (
-        <div style={s.overlay}>
-          <div style={s.modal}>
-            <h3 style={{ marginBottom: 16, color: 'var(--text)' }}>Mark Lead Reply</h3>
-            <select value={replyType} onChange={(e) => setReplyType(e.target.value)} style={{ marginBottom: 16 }}>
-              {REPLY_TYPES.map((r) => <option key={r.value} value={r.value}>{r.label}</option>)}
-            </select>
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-primary" onClick={handleReply}>Process Reply</button>
-              <button className="btn-ghost" onClick={() => setReplyModal(null)}>Cancel</button>
+      {/* ── Portaled Modals (escape transform stacking context) ── */}
+      {editModal && createPortal(
+        <div style={s.overlay} onClick={() => setEditModal(null)}>
+          <div style={{ ...s.modal, minWidth: 480, maxWidth: 560 }} onClick={e => e.stopPropagation()}>
+            <div style={s.modalHeader}>
+              <span className="material-symbols-outlined" style={{ color: 'var(--brand-gold)', fontSize: 22 }}>edit</span>
+              <h3 style={s.modalTitle}>Lead bearbeiten</h3>
+            </div>
+            <div style={s.modalDivider} />
+
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+              {EDIT_FIELDS.map(f => (
+                <div key={f.key} style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                  <label style={s.fieldLabel}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 13, opacity: 0.6 }}>{f.icon}</span>
+                    {f.label}
+                  </label>
+                  <input
+                    type={f.type}
+                    value={editData[f.key]}
+                    onChange={e => setEditData({ ...editData, [f.key]: e.target.value })}
+                    style={{ padding: '9px 12px', fontSize: 13 }}
+                  />
+                </div>
+              ))}
+            </div>
+
+            {/* Status + Language full width */}
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 20 }}>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={s.fieldLabel}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13, opacity: 0.6 }}>info</span>
+                  Status
+                </label>
+                <select value={editData.status} onChange={e => setEditData({ ...editData, status: e.target.value })}
+                  style={{ padding: '9px 12px', fontSize: 13 }}>
+                  {Object.keys(STATUS_STYLE).map(st => <option key={st}>{st}</option>)}
+                </select>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                <label style={s.fieldLabel}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 13, opacity: 0.6 }}>translate</span>
+                  Sprache
+                </label>
+                <select value={editData.language} onChange={e => setEditData({ ...editData, language: e.target.value })}
+                  style={{ padding: '9px 12px', fontSize: 13 }}>
+                  <option value="de">Deutsch (DE)</option>
+                  <option value="en">English (EN)</option>
+                </select>
+              </div>
+            </div>
+
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn-primary" onClick={saveEdit} disabled={saving}
+                style={{ flex: 1, borderRadius: 10, padding: '11px', display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 16 }}>{saving ? 'sync' : 'save'}</span>
+                {saving ? 'Speichern...' : 'Änderungen speichern'}
+              </button>
+              <button className="btn-ghost" onClick={() => setEditModal(null)} style={{ borderRadius: 10, padding: '11px 18px' }}>
+                Abbrechen
+              </button>
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
-      {/* Schedule Call Modal */}
-      {callModal && (
-        <div style={s.overlay}>
-          <div style={s.modal}>
-            <h3 style={{ marginBottom: 16, color: 'var(--text)' }}>Schedule Call</h3>
-            <input type="datetime-local" value={callDate} onChange={(e) => setCallDate(e.target.value)} style={{ marginBottom: 16 }} />
-            <div style={{ display: 'flex', gap: 8 }}>
-              <button className="btn-primary" onClick={handleScheduleCall}>Schedule</button>
-              <button className="btn-ghost" onClick={() => setCallModal(null)}>Cancel</button>
+      {/* ── Reply Modal ── */}
+      {replyModal && createPortal(
+        <div style={s.overlay} onClick={() => setReplyModal(null)}>
+          <div style={s.modal} onClick={e => e.stopPropagation()}>
+            <div style={s.modalHeader}>
+              <span className="material-symbols-outlined" style={{ color: 'var(--brand-gold)', fontSize: 22 }}>reply</span>
+              <h3 style={s.modalTitle}>Antwort markieren</h3>
+            </div>
+            <div style={s.modalDivider} />
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8, marginBottom: 20 }}>
+              {REPLY_TYPES.map(r => (
+                <div key={r.value} onClick={() => setReplyType(r.value)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 12,
+                    padding: '11px 14px', borderRadius: 10, cursor: 'pointer',
+                    border: `1px solid ${replyType === r.value ? 'var(--brand-gold)' : 'var(--border)'}`,
+                    background: replyType === r.value ? 'var(--brand-gold-glow)' : 'var(--bg3)',
+                    transition: 'all 0.15s var(--ease)',
+                  }}>
+                  <div style={{
+                    width: 16, height: 16, borderRadius: '50%', flexShrink: 0,
+                    border: `2px solid ${replyType === r.value ? 'var(--brand-gold)' : 'var(--text3)'}`,
+                    background: replyType === r.value ? 'var(--brand-gold)' : 'transparent',
+                    transition: 'all 0.15s var(--ease)',
+                  }} />
+                  <span style={{ fontSize: 13, fontWeight: replyType === r.value ? 600 : 400, color: replyType === r.value ? 'var(--text)' : 'var(--text2)' }}>
+                    {r.label}
+                  </span>
+                </div>
+              ))}
+            </div>
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn-primary" onClick={handleReply} style={{ flex: 1, borderRadius: 10 }}>
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>send</span>Verarbeiten
+                </span>
+              </button>
+              <button className="btn-ghost" onClick={() => setReplyModal(null)} style={{ borderRadius: 10 }}>Abbrechen</button>
             </div>
           </div>
         </div>
-      )}
+      , document.body)}
 
-      <div style={{ overflowX: 'auto', borderRadius: 'var(--radius)', border: '1px solid var(--border)' }}>
-        <table style={s.table}>
-          <thead>
+      {/* ── Schedule Call Modal ── */}
+      {callModal && createPortal(
+        <div style={s.overlay} onClick={() => setCallModal(null)}>
+          <div style={s.modal} onClick={e => e.stopPropagation()}>
+            <div style={s.modalHeader}>
+              <span className="material-symbols-outlined" style={{ color: 'var(--brand-gold)', fontSize: 22 }}>event</span>
+              <h3 style={s.modalTitle}>Anruf planen</h3>
+            </div>
+            <div style={s.modalDivider} />
+            <input type="datetime-local" value={callDate} onChange={e => setCallDate(e.target.value)} style={{ marginBottom: 20 }} />
+            <div style={{ display: 'flex', gap: 10 }}>
+              <button className="btn-primary" onClick={handleScheduleCall} style={{ flex: 1, borderRadius: 10 }}>
+                <span style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: 6 }}>
+                  <span className="material-symbols-outlined" style={{ fontSize: 16 }}>event_available</span>Planen
+                </span>
+              </button>
+              <button className="btn-ghost" onClick={() => setCallModal(null)} style={{ borderRadius: 10 }}>Abbrechen</button>
+            </div>
+          </div>
+        </div>
+      , document.body)}
+
+      <div style={s.tableWrap}>
+        {/* Table header bar with total count */}
+        <div style={s.tableHeader}>
+          <div style={s.tableHeaderLeft}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, color: 'var(--brand-gold)' }}>group</span>
+            <span style={{ fontSize: 13, fontWeight: 700, color: 'var(--text)', fontFamily: "'Outfit',sans-serif" }}>
+              Alle Kontakte
+            </span>
+            <span style={{
+              background: 'var(--brand-gold-glow)', color: 'var(--brand-gold)',
+              fontSize: 11, fontWeight: 700, padding: '2px 10px',
+              borderRadius: 20, border: '1px solid rgba(201,168,76,0.15)',
+              fontFamily: "'Outfit',sans-serif",
+            }}>
+              {leads.length} {leads.length === 1 ? 'Lead' : 'Leads'}
+            </span>
+          </div>
+          <span style={{ fontSize: 11, color: 'var(--text3)', display: 'flex', alignItems: 'center', gap: 5 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 13 }}>update</span>
+            Live
+            <span style={{ width: 6, height: 6, borderRadius: '50%', background: 'var(--green)', boxShadow: '0 0 6px rgba(62,201,122,0.5)', display: 'inline-block' }} />
+          </span>
+        </div>
+
+        {/* Scrollable table body */}
+        <div style={s.tableScroll} className="table-scroll">
+          <table style={s.table}>
+            <thead>
             <tr>
-              {['Lead', 'Hotel', 'Status', 'Flow', 'Score', 'Last Email', 'Actions'].map((h) => (
-                <th key={h} style={s.th}>{h}</th>
+              {[
+                { label: 'Lead', icon: 'person' }, { label: 'Hotel', icon: 'hotel' },
+                { label: 'Status', icon: 'info' }, { label: 'Flow', icon: 'route' },
+                { label: 'Score', icon: 'analytics' }, { label: 'Letzte E-Mail', icon: 'mail' },
+                { label: 'Aktionen', icon: 'settings' },
+              ].map(h => (
+                <th key={h.label} style={s.th}>
+                  <span style={s.thContent}>
+                    <span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.5 }}>{h.icon}</span>
+                    {h.label}
+                  </span>
+                </th>
               ))}
             </tr>
           </thead>
           <tbody>
-            {leads.map((lead) => {
+            {leads.map((lead, i) => {
               const st = STATUS_STYLE[lead.status] || STATUS_STYLE['Cold'];
-              const isEditing = editing === lead._id;
               const isHighPriority = lead.score >= 40;
               return (
-                <tr key={lead._id} style={{ ...s.row, background: isHighPriority ? 'rgba(249,115,22,0.04)' : 'transparent' }}>
+                <tr key={lead._id} style={{ ...s.row, background: isHighPriority ? 'rgba(232,144,64,0.03)' : 'transparent', animation: `fadeIn 0.3s var(--ease) ${i * 0.03}s both` }}>
                   <td style={s.td}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                      {isHighPriority && <span title="High Priority" style={{ color: '#f97316' }}>🔥</span>}
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                      {isHighPriority && (
+                        <span className="material-symbols-outlined" title="Hohe Priorität"
+                          style={{ color: 'var(--orange)', fontSize: 18, animation: 'pulse-gold 2s ease infinite' }}>
+                          local_fire_department
+                        </span>
+                      )}
+                      <div style={s.avatar}>{lead.name?.charAt(0)?.toUpperCase()}</div>
                       <div>
                         <div style={s.leadName}>{lead.name}</div>
                         <div style={s.leadEmail}>{lead.email}</div>
-                        <div style={{ fontSize: 11, color: 'var(--text3)' }}>{lead.language?.toUpperCase()}</div>
+                        <div style={s.langTag}>{lead.language?.toUpperCase()}</div>
                       </div>
                     </div>
                   </td>
                   <td style={s.td}>
-                    <span style={s.hotelTag}>{lead.hotel}</span>
-                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 3 }}>📍 {lead.location}</div>
+                    <span style={s.hotelTag}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>hotel</span>{lead.hotel}
+                    </span>
+                    <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4, display: 'flex', alignItems: 'center', gap: 3 }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 12 }}>location_on</span>{lead.location}
+                    </div>
                   </td>
                   <td style={s.td}>
-                    {isEditing ? (
-                      <select value={editData.status} onChange={(e) => setEditData({ ...editData, status: e.target.value })}
-                        style={{ padding: '5px 8px', width: 'auto', fontSize: 12 }}>
-                        {Object.keys(STATUS_STYLE).map((s) => <option key={s}>{s}</option>)}
-                      </select>
-                    ) : (
-                      <span style={{ ...s.badge, background: st.bg, color: st.color }}>
-                        <span style={{ width: 6, height: 6, borderRadius: '50%', background: st.color, display: 'inline-block', marginRight: 5 }} />
-                        {lead.status}
-                      </span>
-                    )}
+                    <span style={{ ...s.badge, background: st.bg, color: st.color, border: `1px solid ${st.bg}` }}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 13 }}>{st.icon}</span>
+                      {lead.status}
+                    </span>
                   </td>
                   <td style={s.td}>
-                    <span style={{ fontSize: 13, color: 'var(--text2)', fontWeight: 600 }}>Flow {lead.flow || 1}</span>
+                    <span style={s.flowBadge}>
+                      <span className="material-symbols-outlined" style={{ fontSize: 13, color: 'var(--brand-gold)' }}>route</span>
+                      Flow {lead.flow || 1}
+                    </span>
                   </td>
                   <td style={s.td}>
-                    <span style={{ fontSize: 13, fontWeight: 700, color: lead.score >= 40 ? '#f97316' : 'var(--text2)' }}>
+                    <span style={{ ...s.scoreBadge, color: lead.score >= 40 ? 'var(--orange)' : 'var(--text2)', background: lead.score >= 40 ? 'var(--orange-bg)' : 'transparent' }}>
                       {lead.score || 0}
                     </span>
                   </td>
                   <td style={s.td}>
-                    <span style={{ fontSize: 11, color: 'var(--text3)' }}>
-                      {lead.lastEmailSent || '—'}
+                    <div style={{ fontSize: 11, color: 'var(--text3)' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginBottom: 2 }}>
+                        <span className="material-symbols-outlined" style={{ fontSize: 12, opacity: 0.5 }}>mail</span>
+                        {lead.lastEmailSent || '—'}
+                      </div>
                       {lead.lastEmailDate && (
-                        <div>{new Date(lead.lastEmailDate).toLocaleDateString('de-DE')}</div>
+                        <div style={{ opacity: 0.7 }}>{new Date(lead.lastEmailDate).toLocaleDateString('de-DE')}</div>
                       )}
-                    </span>
+                    </div>
                   </td>
                   <td style={{ ...s.td, minWidth: 260 }}>
-                    {isEditing ? (
-                      <div style={s.actions}>
-                        <input value={editData.notes} onChange={(e) => setEditData({ ...editData, notes: e.target.value })}
-                          placeholder="Notes..." style={{ padding: '4px 8px', fontSize: 12, width: 120 }} />
-                        <button className="btn-primary" onClick={() => saveEdit(lead._id)} disabled={saving} style={s.btn}>Save</button>
-                        <button className="btn-ghost" onClick={() => setEditing(null)} style={s.btn}>✕</button>
-                      </div>
-                    ) : (
-                      <div style={s.actions}>
-                        <button className="btn-success" onClick={() => setReplyModal(lead._id)} style={s.btn} title="Mark reply">
-                          Reply
-                        </button>
-                        <button className="btn-ghost" onClick={() => { setCallModal(lead._id); setCallDate(''); }} style={s.btn} title="Schedule call">
-                          📅
-                        </button>
-                        <button className="btn-ghost" onClick={() => handleLinkClick(lead._id)} style={s.btn} title="Track link click">
-                          🔗
-                        </button>
-                        <button className="btn-ghost" onClick={() => handleNotifyAna(lead._id)} style={s.btn} title="Notify Ana">
-                          Ana
-                        </button>
-                        <button className="btn-ghost" onClick={() => { setEditing(lead._id); setEditData({ status: lead.status, notes: lead.notes || '' }); }} style={s.btn}>
-                          Edit
-                        </button>
-                        <button className="btn-danger" onClick={() => handleDelete(lead)} disabled={deleting === lead._id} style={s.btn}>
-                          ✕
-                        </button>
-                      </div>
-                    )}
+                    <div style={s.actions}>
+                      <button className="btn-success" onClick={() => setReplyModal(lead._id)} style={s.actionBtn} title="Antwort markieren">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>reply</span>
+                      </button>
+                      <button className="btn-ghost" onClick={() => { setCallModal(lead._id); setCallDate(''); }} style={s.actionBtn} title="Anruf planen">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>event</span>
+                      </button>
+                      <button className="btn-ghost" onClick={() => handleLinkClick(lead._id)} style={s.actionBtn} title="Link-Klick tracken">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>link</span>
+                      </button>
+                      <button className="btn-ghost" onClick={() => handleNotifyAna(lead._id)} style={s.actionBtn} title="Ana benachrichtigen">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>notifications</span>
+                      </button>
+                      <button className="btn-ghost" onClick={() => openEdit(lead)} style={s.actionBtn} title="Bearbeiten">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>edit</span>
+                      </button>
+                      <button className="btn-danger" onClick={() => handleDelete(lead)} disabled={deleting === lead._id} style={s.actionBtn} title="Löschen">
+                        <span className="material-symbols-outlined" style={{ fontSize: 14 }}>delete</span>
+                      </button>
+                    </div>
                   </td>
                 </tr>
               );
             })}
           </tbody>
         </table>
+        </div>{/* end tableScroll */}
       </div>
     </>
   );
 }
 
 const s = {
-  table: { width: '100%', borderCollapse: 'collapse', background: 'var(--bg2)' },
-  th: { padding: '11px 14px', textAlign: 'left', fontSize: 11, fontWeight: 600, color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.07em', background: 'var(--bg3)', borderBottom: '1px solid var(--border)' },
-  row: { borderBottom: '1px solid rgba(42,49,71,0.5)' },
-  td: { padding: '12px 14px', fontSize: 13, verticalAlign: 'middle' },
-  leadName: { fontWeight: 600, color: 'var(--text)', fontSize: 14 },
+  tableWrap: {
+    borderRadius: 'var(--radius)',
+    border: '1px solid var(--border)',
+    boxShadow: 'var(--shadow-sm)',
+    overflow: 'hidden',
+    display: 'flex',
+    flexDirection: 'column',
+  },
+  tableHeader: {
+    display: 'flex', alignItems: 'center', justifyContent: 'space-between',
+    padding: '12px 16px',
+    background: 'linear-gradient(180deg, var(--bg3) 0%, var(--bg2) 100%)',
+    borderBottom: '1px solid var(--border)',
+    flexShrink: 0,
+  },
+  tableHeaderLeft: { display: 'flex', alignItems: 'center', gap: 10 },
+  tableScroll: {
+    overflowY: 'auto',
+    overflowX: 'auto',
+    maxHeight: '520px',
+    // Custom scrollbar
+    scrollbarWidth: 'thin',
+    scrollbarColor: 'rgba(201,168,76,0.2) transparent',
+  },
+  table: { width: '100%', borderCollapse: 'collapse', background: 'linear-gradient(180deg, var(--bg2) 0%, var(--bg) 100%)' },
+  th: {
+    padding: '13px 16px', textAlign: 'left', fontSize: 11, fontWeight: 700,
+    color: 'var(--text3)', textTransform: 'uppercase', letterSpacing: '0.08em',
+    background: 'var(--bg2)',
+    borderBottom: '1px solid var(--border)',
+    fontFamily: "'Outfit',sans-serif",
+    position: 'sticky', top: 0, zIndex: 1,
+  },
+  thContent: { display: 'flex', alignItems: 'center', gap: 6 },
+  row: { borderBottom: '1px solid var(--border-subtle)', transition: 'background 0.2s var(--ease)' },
+  td: { padding: '14px 16px', fontSize: 13, verticalAlign: 'middle' },
+  avatar: { width: 34, height: 34, borderRadius: 8, background: 'var(--brand-gold-glow)', color: 'var(--brand-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, fontFamily: "'Outfit',sans-serif", flexShrink: 0, border: '1px solid rgba(201,168,76,0.15)' },
+  leadName: { fontWeight: 600, color: 'var(--text)', fontSize: 14, fontFamily: "'Outfit',sans-serif" },
   leadEmail: { color: 'var(--text3)', fontSize: 12, marginTop: 1 },
-  hotelTag: { background: 'rgba(99,102,241,0.1)', color: 'var(--accent2)', padding: '2px 8px', borderRadius: 5, fontSize: 12, fontWeight: 500 },
-  badge: { display: 'inline-flex', alignItems: 'center', padding: '3px 9px', borderRadius: 20, fontSize: 11, fontWeight: 600 },
+  langTag: { fontSize: 10, color: 'var(--brand-gold)', fontWeight: 700, marginTop: 2, letterSpacing: '0.08em' },
+  hotelTag: { background: 'var(--brand-gold-glow)', color: 'var(--brand-gold-light)', padding: '3px 10px', borderRadius: 6, fontSize: 12, fontWeight: 500, display: 'inline-flex', alignItems: 'center', gap: 4, border: '1px solid rgba(201,168,76,0.08)' },
+  badge: { display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600 },
+  flowBadge: { display: 'inline-flex', alignItems: 'center', gap: 5, fontSize: 13, color: 'var(--text2)', fontWeight: 600 },
+  scoreBadge: { fontSize: 15, fontWeight: 800, fontFamily: "'Outfit',sans-serif", padding: '3px 10px', borderRadius: 8 },
   actions: { display: 'flex', gap: 5, flexWrap: 'wrap', alignItems: 'center' },
-  btn: { padding: '4px 9px', fontSize: 11 },
-  empty: { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '50px 20px', textAlign: 'center' },
-  overlay: { position: 'fixed', inset: 0, background: 'rgba(0,0,0,0.6)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000 },
-  modal: { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 12, padding: 28, minWidth: 320, display: 'flex', flexDirection: 'column', gap: 4 },
+  actionBtn: { padding: '6px 8px', fontSize: 11, borderRadius: 7, display: 'flex', alignItems: 'center', justifyContent: 'center', minWidth: 32, height: 32 },
+  empty: { background: 'linear-gradient(145deg, var(--bg2) 0%, var(--bg3) 100%)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '60px 20px', textAlign: 'center', animation: 'fadeIn 0.4s var(--ease) both' },
+  emptyIcon: { width: 72, height: 72, borderRadius: 16, background: 'var(--brand-gold-glow)', display: 'flex', alignItems: 'center', justifyContent: 'center', margin: '0 auto 16px', border: '1px solid rgba(201,168,76,0.1)' },
+  overlay: { position: 'fixed', inset: 0, background: 'rgba(5,8,16,0.75)', backdropFilter: 'blur(6px)', display: 'flex', alignItems: 'center', justifyContent: 'center', zIndex: 1000, animation: 'fadeIn 0.2s var(--ease) both' },
+  modal: { background: 'linear-gradient(160deg, var(--bg2) 0%, var(--bg3) 100%)', border: '1px solid var(--border-accent)', borderRadius: 16, padding: 32, minWidth: 360, display: 'flex', flexDirection: 'column', boxShadow: '0 24px 80px rgba(0,0,0,0.5)', animation: 'scaleIn 0.25s var(--ease) both' },
+  modalHeader: { display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 },
+  modalTitle: { color: 'var(--text)', fontSize: 18, fontWeight: 700, fontFamily: "'Outfit',sans-serif" },
+  modalDivider: { height: 1, background: 'linear-gradient(90deg, var(--border-accent), transparent)', margin: '14px 0 20px' },
+  fieldLabel: { fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'flex', alignItems: 'center', gap: 5 },
 };

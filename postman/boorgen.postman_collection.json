@@ -4,8 +4,14 @@
     "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json"
   },
   "variable": [
-    { "key": "base_url", "value": "http://localhost:3000/api" },
-    { "key": "token", "value": "" }
+    {
+      "key": "base_url",
+      "value": "http://localhost:3000/api"
+    },
+    {
+      "key": "token",
+      "value": ""
+    }
   ],
   "item": [
     {
@@ -13,7 +19,12 @@
       "request": {
         "method": "POST",
         "url": "{{base_url}}/login",
-        "header": [{ "key": "Content-Type", "value": "application/json" }],
+        "header": [
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          }
+        ],
         "body": {
           "mode": "raw",
           "raw": "{\n  \"email\": \"admin@boorgen.com\",\n  \"password\": \"your_admin_password\"\n}"
@@ -26,8 +37,14 @@
         "method": "POST",
         "url": "{{base_url}}/add-lead",
         "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "Authorization", "value": "Bearer {{token}}" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -40,7 +57,12 @@
       "request": {
         "method": "GET",
         "url": "{{base_url}}/leads",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ]
       }
     },
     {
@@ -50,11 +72,22 @@
         "url": {
           "raw": "{{base_url}}/leads?search=münchen&status=New",
           "query": [
-            { "key": "search", "value": "münchen" },
-            { "key": "status", "value": "New" }
+            {
+              "key": "search",
+              "value": "münchen"
+            },
+            {
+              "key": "status",
+              "value": "New"
+            }
           ]
         },
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ]
       }
     },
     {
@@ -63,8 +96,14 @@
         "method": "POST",
         "url": "{{base_url}}/update-lead",
         "header": [
-          { "key": "Content-Type", "value": "application/json" },
-          { "key": "Authorization", "value": "Bearer {{token}}" }
+          {
+            "key": "Content-Type",
+            "value": "application/json"
+          },
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
         ],
         "body": {
           "mode": "raw",
@@ -77,7 +116,12 @@
       "request": {
         "method": "GET",
         "url": "{{base_url}}/stats",
-        "header": [{ "key": "Authorization", "value": "Bearer {{token}}" }]
+        "header": [
+          {
+            "key": "Authorization",
+            "value": "Bearer {{token}}"
+          }
+        ]
       }
     }
   ]

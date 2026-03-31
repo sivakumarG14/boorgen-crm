@@ -1,149 +1,146 @@
-# Boorgen AI Outreach — Setup Guide
+# BOORGEN Outreach CRM — Setup Guide
 
-## Project Structure
-
-```
-boorgen-outreach/
-├── backend/
-│   ├── models/Lead.js
-│   ├── middleware/auth.js
-│   ├── routes/auth.js
-│   ├── routes/leads.js
-│   ├── services/groq.js
-│   ├── services/mailer.js
-│   ├── services/webhook.js
-│   ├── server.js
-│   ├── .env.example
-│   └── package.json
-├── frontend/
-│   ├── src/
-│   │   ├── pages/Login.jsx
-│   │   ├── pages/Dashboard.jsx
-│   │   ├── components/AddLeadForm.jsx
-│   │   ├── components/LeadsTable.jsx
-│   │   ├── components/StatsBar.jsx
-│   │   ├── App.jsx
-│   │   ├── api.js
-│   │   └── main.jsx
-│   ├── index.html
-│   ├── vite.config.js
-│   └── package.json
-└── n8n/
-    └── workflow.json
-```
+## Stack
+- Backend: Node.js + Express + MongoDB + Socket.io + Nodemailer
+- Frontend: React + Vite + Socket.io-client
+- Auth: JWT (8h expiry)
 
 ---
 
-## Step 1 — MongoDB Atlas (Free)
-
-1. Go to https://cloud.mongodb.com → create free cluster
-2. Create a database user (username + password)
-3. Whitelist IP: 0.0.0.0/0 (for Render deployment)
-4. Copy connection string:
-   `mongodb+srv://<user>:<password>@cluster0.mongodb.net/boorgen`
+## 1. Prerequisites
+- Node.js >= 18
+- MongoDB Atlas account (or local MongoDB)
+- Gmail account with App Password enabled
 
 ---
 
-## Step 2 — Groq API Key (Free)
-
-1. Go to https://console.groq.com
-2. Sign up → API Keys → Create Key
-3. Copy the key → set as GROQ_API_KEY
-
----
-
-## Step 3 — Gmail App Password
-
-1. Enable 2FA on your Google account
-2. Go to https://myaccount.google.com/apppasswords
-3. Create app password for "Mail"
-4. Use that 16-char password as GMAIL_PASS (NOT your real password)
-
----
-
-## Step 4 — Backend Setup
+## 2. Backend Setup
 
 ```bash
-cd boorgen-outreach/backend
-cp .env.example .env
-# Fill in all values in .env
+cd backend
 npm install
-npm start
 ```
 
-Backend runs on http://localhost:3000
+Edit `backend/.env`:
+```
+PORT=3000
+MONGO_URI=mongodb+srv://<user>:<pass>@cluster.mongodb.net/boorgen
+JWT_SECRET=your_jwt_secret
+ADMIN_EMAIL=admin@boorgen.com
+ADMIN_PASSWORD=your_password
+GMAIL_USER=your@gmail.com
+GMAIL_PASS=your_app_password        # Gmail App Password (not account password)
+BACKEND_URL=http://localhost:3000   # Used for tracking links in emails
+ANA_EMAIL=ana@yourdomain.com        # Notification recipient
+GROQ_API_KEY=your_groq_key          # Optional: AI email generation
+N8N_WEBHOOK_URL=...                 # Optional: n8n automation
+N8N_SECRET=...                      # Optional: n8n shared secret
+FRONTEND_URL=http://localhost:5173  # For CORS
+```
+
+Start backend:
+```bash
+npm run dev    # development (nodemon)
+npm start      # production
+```
 
 ---
 
-## Step 5 — Frontend Setup
+## 3. Frontend Setup
 
 ```bash
-cd boorgen-outreach/frontend
+cd frontend
 npm install
 npm run dev
 ```
 
-Frontend runs on http://localhost:5173
-
----
-
-## Step 6 — n8n Setup (Self-hosted, Free)
-
-### Install n8n locally:
-```bash
-npm install -g n8n
-n8n start
+For production, set `VITE_API_URL` in a `.env` file:
 ```
-n8n runs on http://localhost:5678
-
-### Import workflow:
-1. Open n8n → Workflows → Import from File
-2. Select `n8n/workflow.json`
-3. Configure credentials:
-   - **Groq**: HTTP Header Auth → Name: `Authorization`, Value: `Bearer YOUR_GROQ_API_KEY`
-   - **Gmail**: Add Gmail OAuth2 or SMTP credentials
-4. Set environment variable in n8n:
-   - `GROQ_API_KEY` = your key
-   - `BACKEND_JWT_TOKEN` = a valid JWT (login via /api/login and copy token)
-5. Activate the workflow
-
-### n8n Workflow Steps:
-1. Webhook receives POST from backend at `/webhook/lead-outreach`
-2. HTTP Request → Groq API generates German email
-3. Gmail node sends email to lead
-4. HTTP Request → POST /api/update-lead (status = Contacted)
+VITE_API_URL=https://your-backend.onrender.com
+```
 
 ---
 
-## Step 7 — Deploy to Render (Free)
-
-### Backend:
-1. Push code to GitHub
-2. Go to https://render.com → New Web Service
-3. Connect repo → set root dir to `backend`
-4. Build command: `npm install`
-5. Start command: `npm start`
-6. Add all environment variables from .env
-
-### Frontend:
-1. New Static Site on Render
-2. Root dir: `frontend`
-3. Build command: `npm install && npm run build`
-4. Publish dir: `dist`
-5. Set env var: `VITE_API_URL` if needed
+## 4. Login
+- URL: http://localhost:5173/login
+- Email: value of `ADMIN_EMAIL` in .env
+- Password: value of `ADMIN_PASSWORD` in .env
 
 ---
 
-## Environment Variables Reference
+## 5. API Reference
 
-| Variable | Description |
-|---|---|
-| PORT | Backend port (default 3000) |
-| MONGO_URI | MongoDB Atlas connection string |
-| JWT_SECRET | Random secret string for JWT signing |
-| ADMIN_EMAIL | Admin login email |
-| ADMIN_PASSWORD | Admin login password |
-| GROQ_API_KEY | Groq API key from console.groq.com |
-| GMAIL_USER | Gmail address |
-| GMAIL_PASS | Gmail App Password (16 chars) |
-| N8N_WEBHOOK_URL | http://localhost:5678/webhook/lead-outreach |
+### Auth
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/login | Get JWT token |
+
+### Leads
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/add-lead | Create lead + send cold email |
+| GET | /api/leads | List leads (search + status filter) |
+| POST | /api/update-lead | Update status/notes |
+| DELETE | /api/delete-lead/:id | Delete lead |
+| GET | /api/stats | Dashboard stats |
+
+### Funnel
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| POST | /api/funnel/reply | Process reply (yes/no/address/question/later) |
+| POST | /api/funnel/link-click | Track manual link click |
+| POST | /api/funnel/schedule-call | Schedule call (+20 score) |
+| POST | /api/funnel/notify-ana | Send notification to Ana |
+
+### Tracking (no auth required)
+| Method | Endpoint | Description |
+|--------|----------|-------------|
+| GET | /track/:trackingId | Link click → redirect (score +10) |
+| GET | /track/open/:trackingId | Email open pixel (score +5) |
+| POST | /track/visit | Page visit from JS snippet |
+
+---
+
+## 6. AI Scoring System
+| Event | Score |
+|-------|-------|
+| Email open | +5 |
+| Link click | +10 |
+| Reply (no/later) | +10 |
+| Reply (yes/question) | +20 |
+| Address provided | +30 |
+| Call scheduled | +20 |
+| High priority threshold | ≥ 40 |
+
+---
+
+## 7. Real-Time Events (Socket.io)
+Events emitted to all connected clients:
+- `leadAdded` — new lead created
+- `leadUpdated` — status/score changed
+- `linkClicked` — tracking link clicked
+- `emailOpened` — tracking pixel fired
+- `callScheduled` — call date set
+- `pageVisit` — JS snippet visit
+
+---
+
+## 8. Page Tracking Snippet
+Embed on any hotel landing page:
+```html
+<script src="https://your-backend.com/tracker.js?tid=LEAD_TRACKING_ID"></script>
+```
+Replace `LEAD_TRACKING_ID` with the lead's `trackingId` field from the database.
+
+---
+
+## 9. Docker (optional)
+```bash
+docker-compose up --build
+```
+
+---
+
+## 10. Production Deployment (Render)
+See `render.yaml` for service configuration.
+Set all environment variables in the Render dashboard.

@@ -2,12 +2,16 @@ const express = require('express');
 const router = express.Router();
 const auth = require('../middleware/auth');
 const Lead = require('../models/Lead');
+const { emit } = require('../services/socket');
 const {
-  flow1_entry, flow6_callWarmup, flow8_reEngage,
-  processReply, flow4_behaviorTrigger, notifyAna,
+  flow1_entry,
+  processReply,
+  flow4_behaviorTrigger,
+  scheduleCall,
+  notifyAna,
 } = require('../services/funnel');
 
-// POST /api/funnel/flow1 — called by n8n to trigger Flow 1 cold contact
+// POST /api/funnel/flow1 — n8n trigger
 router.post('/flow1', async (req, res) => {
   const secret = req.headers['x-n8n-secret'];
   if (!process.env.N8N_SECRET || secret !== process.env.N8N_SECRET) {
@@ -18,11 +22,7 @@ router.post('/flow1', async (req, res) => {
   try {
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
-    // Only trigger if not already started
-    if (lead.lastEmailSent) {
-      return res.json({ message: 'Flow already started', lead });
-    }
-    const { flow1_entry } = require('../services/funnel');
+    if (lead.lastEmailSent) return res.json({ message: 'Flow already started', lead });
     await flow1_entry(lead);
     res.json({ message: 'Flow 1 triggered', lead });
   } catch (err) {
@@ -31,7 +31,7 @@ router.post('/flow1', async (req, res) => {
   }
 });
 
-// POST /api/funnel/reply — admin marks a lead's reply type
+// POST /api/funnel/reply
 router.post('/reply', auth, async (req, res) => {
   try {
     const { leadId, replyType, replyText } = req.body;
@@ -40,15 +40,23 @@ router.post('/reply', auth, async (req, res) => {
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-    await processReply(lead, replyType, replyText || '');
-    res.json({ message: 'Reply processed', lead });
+    // Process reply in background so response is immediate
+    processReply(lead, replyType, replyText || '')
+      .catch(err => console.error('processReply error:', err.message));
+
+    // Return current lead state (score/status update happens async)
+    // Re-fetch after brief moment for accurate response
+    await new Promise(r => setTimeout(r, 800));
+    const updated = await Lead.findById(leadId);
+    emit('leadUpdated', { leadId: updated._id, status: updated.status, score: updated.score });
+    res.json({ message: 'Reply processed', lead: updated });
   } catch (err) {
     console.error('funnel/reply error:', err.message);
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/funnel/link-click — track configurator link click
+// POST /api/funnel/link-click
 router.post('/link-click', auth, async (req, res) => {
   try {
     const { leadId } = req.body;
@@ -63,23 +71,23 @@ router.post('/link-click', auth, async (req, res) => {
   }
 });
 
-// POST /api/funnel/schedule-call — mark call scheduled
+// POST /api/funnel/schedule-call
 router.post('/schedule-call', auth, async (req, res) => {
   try {
     const { leadId, callDate } = req.body;
+    if (!leadId || !callDate) return res.status(400).json({ error: 'leadId and callDate required' });
+
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-    lead.status = 'Call Scheduled';
-    lead.callDate = new Date(callDate);
-    await lead.save();
+    await scheduleCall(lead, callDate);
     res.json({ message: 'Call scheduled', lead });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/funnel/close — mark lead as Closed/Lost or Qualified
+// POST /api/funnel/close
 router.post('/close', auth, async (req, res) => {
   try {
     const { leadId, status, notes } = req.body;
@@ -89,27 +97,31 @@ router.post('/close', auth, async (req, res) => {
     lead.status = status || 'Closed / Lost';
     if (notes) lead.notes = notes;
     await lead.save();
+
+    emit('leadUpdated', { leadId: lead._id, status: lead.status });
     res.json({ message: 'Lead closed', lead });
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// POST /api/funnel/notify-ana — manually notify Ana
+// POST /api/funnel/notify-ana
 router.post('/notify-ana', auth, async (req, res) => {
   try {
     const { leadId, message } = req.body;
     const lead = await Lead.findById(leadId);
     if (!lead) return res.status(404).json({ error: 'Lead not found' });
 
-    await notifyAna(lead, message || 'Manual notification from CRM');
+    // Respond immediately, send email in background
     res.json({ message: 'Ana notified' });
+    notifyAna(lead, message || 'Manual notification from CRM')
+      .catch(err => console.error('notifyAna error:', err.message));
   } catch (err) {
     res.status(500).json({ error: err.message });
   }
 });
 
-// GET /api/funnel/stats — funnel stats per status
+// GET /api/funnel/stats
 router.get('/stats', auth, async (req, res) => {
   try {
     const statuses = [

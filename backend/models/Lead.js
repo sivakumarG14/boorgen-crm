@@ -12,26 +12,33 @@ const STATUSES = [
 ];
 
 const leadSchema = new mongoose.Schema({
-  name:     { type: String, required: true },
-  email:    { type: String, required: true },
-  hotel:    { type: String, required: true },
+  name: { type: String, required: true },
+  email: { type: String, required: true },
+  hotel: { type: String, required: true },
   location: { type: String, required: true },
   language: { type: String, enum: ['de', 'en'], default: 'de' },
 
   // State machine
   status: { type: String, enum: STATUSES, default: 'Cold' },
-  flow:   { type: Number, default: 1 }, // current flow 1-8
+  flow: { type: Number, default: 1 },
+
+  // AI Scoring
+  score: { type: Number, default: 0 },
 
   // Funnel tracking
-  score:          { type: Number, default: 0 },   // lead scoring
-  lastEmailSent:  { type: String, default: '' },   // email type last sent
-  lastEmailDate:  { type: Date },
-  replyReceived:  { type: Boolean, default: false },
-  replyType:      { type: String, default: '' },   // yes/no/address/question/later
-  linkClicked:    { type: Boolean, default: false },
-  addressProvided:{ type: Boolean, default: false },
-  callDate:       { type: Date },
-  reEngageAfter:  { type: Date },                  // date to re-engage (90 days)
+  lastEmailSent: { type: String, default: '' },
+  lastEmailDate: { type: Date },
+  replyReceived: { type: Boolean, default: false },
+  replyType: { type: String, default: '' },
+  linkClicked: { type: Boolean, default: false },
+  addressProvided: { type: Boolean, default: false },
+  callDate: { type: Date },
+  reEngageAfter: { type: Date },
+
+  // Behavior tracking
+  trackingId: { type: String, unique: true, sparse: true },
+  clickCount: { type: Number, default: 0 },
+  openCount: { type: Number, default: 0 },
 
   notes: { type: String, default: '' },
   createdAt: { type: Date, default: Date.now },

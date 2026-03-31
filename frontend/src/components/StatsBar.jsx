@@ -1,22 +1,28 @@
 import React from 'react';
 
 const STATS = [
-  { key: 'total',           label: 'Total',          icon: '◈', color: '#6366f1', bg: 'rgba(99,102,241,0.1)'  },
-  { key: 'cold',            label: 'Cold',            icon: '❄', color: '#94a3b8', bg: 'rgba(148,163,184,0.1)' },
-  { key: 'engaged',         label: 'Engaged',         icon: '◉', color: '#f59e0b', bg: 'rgba(245,158,11,0.1)'  },
-  { key: 'microCommitment', label: 'Micro-Commit',    icon: '✦', color: '#8b5cf6', bg: 'rgba(139,92,246,0.1)'  },
-  { key: 'callScheduled',   label: 'Call Scheduled',  icon: '📅', color: '#22c55e', bg: 'rgba(34,197,94,0.1)'   },
-  { key: 'noInterest',      label: 'No Interest',     icon: '✕', color: '#ef4444', bg: 'rgba(239,68,68,0.1)'   },
-  { key: 'highPriority',    label: 'High Priority',   icon: '🔥', color: '#f97316', bg: 'rgba(249,115,22,0.1)'  },
+  { key: 'total', label: 'Gesamt', icon: 'hub', color: 'var(--brand-gold)', bg: 'var(--brand-gold-glow)' },
+  { key: 'cold', label: 'Kalt', icon: 'ac_unit', color: '#94a3b8', bg: 'rgba(148,163,184,0.07)' },
+  { key: 'engaged', label: 'Engagiert', icon: 'forum', color: 'var(--yellow)', bg: 'var(--yellow-bg)' },
+  { key: 'microCommitment', label: 'Mikro-Commit', icon: 'check_circle', color: 'var(--purple)', bg: 'var(--purple-bg)' },
+  { key: 'callScheduled', label: 'Anruf geplant', icon: 'event', color: 'var(--green)', bg: 'var(--green-bg)' },
+  { key: 'noInterest', label: 'Kein Interesse', icon: 'block', color: 'var(--red)', bg: 'var(--red-bg)' },
+  { key: 'highPriority', label: 'Hohe Priorität', icon: 'local_fire_department', color: 'var(--orange)', bg: 'var(--orange-bg)' },
 ];
 
 export default function StatsBar({ stats }) {
   return (
     <div style={s.grid}>
-      {STATS.map((item) => (
-        <div key={item.key} style={s.card}>
+      {STATS.map((item, i) => (
+        <div
+          key={item.key}
+          style={{
+            ...s.card,
+            animationDelay: `${i * 0.06}s`,
+          }}
+        >
           <div style={{ ...s.iconWrap, background: item.bg, color: item.color }}>
-            {item.icon}
+            <span className="material-symbols-outlined" style={{ fontSize: 20 }}>{item.icon}</span>
           </div>
           <div>
             <p style={{ ...s.value, color: item.color }}>{stats[item.key] ?? 0}</p>
@@ -29,9 +35,44 @@ export default function StatsBar({ stats }) {
 }
 
 const s = {
-  grid: { display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(130px, 1fr))', gap: 12, marginBottom: 28 },
-  card: { background: 'var(--bg2)', border: '1px solid var(--border)', borderRadius: 'var(--radius)', padding: '16px', display: 'flex', alignItems: 'center', gap: 12 },
-  iconWrap: { width: 40, height: 40, borderRadius: 8, display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 16, flexShrink: 0 },
-  value: { fontSize: 24, fontWeight: 800, lineHeight: 1 },
-  label: { fontSize: 11, color: 'var(--text2)', marginTop: 3, fontWeight: 500 },
+  grid: {
+    display: 'grid',
+    gridTemplateColumns: 'repeat(auto-fit, minmax(145px, 1fr))',
+    gap: 14,
+    marginBottom: 28,
+  },
+  card: {
+    background: 'linear-gradient(145deg, var(--bg2) 0%, var(--bg3) 100%)',
+    border: '1px solid var(--border)',
+    borderRadius: 'var(--radius)',
+    padding: '18px 16px',
+    display: 'flex',
+    alignItems: 'center',
+    gap: 14,
+    transition: 'all 0.3s var(--ease)',
+    animation: 'fadeIn 0.4s var(--ease) both',
+    cursor: 'default',
+  },
+  iconWrap: {
+    width: 42, height: 42,
+    borderRadius: 10,
+    display: 'flex',
+    alignItems: 'center',
+    justifyContent: 'center',
+    flexShrink: 0,
+    transition: 'transform 0.3s var(--ease)',
+  },
+  value: {
+    fontSize: 26,
+    fontWeight: 800,
+    lineHeight: 1,
+    fontFamily: "'Outfit', sans-serif",
+  },
+  label: {
+    fontSize: 11,
+    color: 'var(--text2)',
+    marginTop: 4,
+    fontWeight: 500,
+    letterSpacing: '0.02em',
+  },
 };

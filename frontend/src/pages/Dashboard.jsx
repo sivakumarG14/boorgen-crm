@@ -1,18 +1,44 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import api from '../api';
+import socket from '../socket';
 import AddLeadForm from '../components/AddLeadForm';
 import LeadsTable from '../components/LeadsTable';
 import StatsBar from '../components/StatsBar';
 
+const FLOW_LABELS = {
+  cold_contact: 'Flow 1 – Erstkontakt',
+  reminder_1: 'Flow 2 – Erinnerung 1',
+  trust_building: 'Flow 3 – Vertrauen',
+  reminder_2: 'Flow 4 – Erinnerung 2',
+  behavior_trigger: 'Flow 4 – Klick-Trigger',
+  qualification_address: 'Flow 5 – Adresse',
+  qualification_spin: 'Flow 5 – SPIN',
+  call_warmup: 'Flow 6 – Call-Vorbereitung',
+  re_engagement: 'Flow 8 – Reaktivierung',
+  cold_exit: 'Kalt-Exit',
+};
+
+const STATUS_COLORS = {
+  'Cold': '#8895a7', 'Engaged': '#e8b84a', 'Micro-Commitment': '#9a6ef5',
+  'Qualified': '#3ec97a', 'Call Scheduled': '#40c4c4',
+  'No Interest': '#e85454', 'Cold – Re-Engage': '#e89040', 'Closed / Lost': '#5a5347',
+};
+
 export default function Dashboard() {
-  const [leads, setLeads]           = useState([]);
-  const [stats, setStats]           = useState({});
-  const [search, setSearch]         = useState('');
-  const [statusFilter, setStatus]   = useState('');
-  const [showForm, setShowForm]     = useState(false);
-  const [loading, setLoading]       = useState(false);
+  const [leads, setLeads] = useState([]);
+  const [stats, setStats] = useState({});
+  const [search, setSearch] = useState('');
+  const [statusFilter, setStatus] = useState('');
+  const [showForm, setShowForm] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [mounted, setMounted] = useState(false);
+  const [activePage, setActivePage] = useState('dashboard');
+  const [settingsMsg, setSettingsMsg] = useState('');
+  const [settingsForm, setSettingsForm] = useState({ adminEmail: '', adminPassword: '', anaEmail: '', gmailUser: '', gmailPass: '' });
   const navigate = useNavigate();
+
+  useEffect(() => { setTimeout(() => setMounted(true), 100); }, []);
 
   const fetchLeads = useCallback(async () => {
     setLoading(true);
@@ -33,106 +59,383 @@ export default function Dashboard() {
 
   useEffect(() => { fetchLeads(); fetchStats(); }, [fetchLeads, fetchStats]);
 
-  const refresh = () => { fetchLeads(); fetchStats(); };
+  useEffect(() => {
+    socket.connect();
+    const refresh = () => { fetchLeads(); fetchStats(); };
+    socket.on('leadAdded', refresh); socket.on('leadUpdated', refresh);
+    socket.on('linkClicked', refresh); socket.on('emailOpened', refresh);
+    socket.on('callScheduled', refresh); socket.on('pageVisit', refresh);
+    return () => {
+      socket.off('leadAdded', refresh); socket.off('leadUpdated', refresh);
+      socket.off('linkClicked', refresh); socket.off('emailOpened', refresh);
+      socket.off('callScheduled', refresh); socket.off('pageVisit', refresh);
+      socket.disconnect();
+    };
+  }, [fetchLeads, fetchStats]);
 
+  const refresh = () => { fetchLeads(); fetchStats(); };
   const logout = () => { localStorage.removeItem('token'); navigate('/login'); };
+  const currentTime = new Date().toLocaleTimeString('de-DE', { hour: '2-digit', minute: '2-digit' });
+  const currentDate = new Date().toLocaleDateString('de-DE', { weekday: 'long', year: 'numeric', month: 'long', day: 'numeric' });
+
+  const NAV = [
+    { id: 'dashboard', label: 'Dashboard', icon: 'dashboard' },
+    { id: 'kontakte', label: 'Kontakte', icon: 'people' },
+    { id: 'kampagnen', label: 'Kampagnen', icon: 'campaign' },
+    { id: 'berichte', label: 'Berichte', icon: 'analytics' },
+    { id: 'einstellungen', label: 'Einstellungen', icon: 'settings' },
+  ];
+
+  const PAGE_TITLES = {
+    dashboard: 'Lead Outreach CRM', kontakte: 'Kontakte',
+    kampagnen: 'Kampagnen & Flows', berichte: 'Berichte & Statistiken',
+    einstellungen: 'Einstellungen',
+  };
+
+  // ── Page: Kontakte ──
+  const renderKontakte = () => (
+    <div>
+      <div style={s.filterBar}>
+        <div style={s.searchWrap}>
+          <span className="material-symbols-outlined" style={s.searchIcon}>search</span>
+          <input placeholder="Name, E-Mail, Hotel suchen..." value={search}
+            onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 40, background: 'var(--bg2)' }} />
+        </div>
+        <select value={statusFilter} onChange={e => setStatus(e.target.value)} style={{ width: 180, background: 'var(--bg2)' }}>
+          <option value="">Alle Status</option>
+          {Object.keys(STATUS_COLORS).map(s => <option key={s}>{s}</option>)}
+        </select>
+        {(search || statusFilter) && (
+          <button className="btn-ghost" onClick={() => { setSearch(''); setStatus(''); }}
+            style={{ height: 42, padding: '0 16px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+            <span className="material-symbols-outlined" style={{ fontSize: 15 }}>filter_alt_off</span> Zurücksetzen
+          </button>
+        )}
+      </div>
+      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(300px, 1fr))', gap: 16 }}>
+        {leads.map(lead => (
+          <div key={lead._id} className="card" style={{ padding: 20, cursor: 'default' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 14 }}>
+              <div style={{ ...s.avatar, width: 42, height: 42, fontSize: 16, borderRadius: 10 }}>
+                {lead.name?.charAt(0)?.toUpperCase()}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 14, fontFamily: "'Outfit',sans-serif", whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{lead.name}</div>
+                <div style={{ fontSize: 12, color: 'var(--text3)', marginTop: 2 }}>{lead.email}</div>
+              </div>
+              <span style={{ fontSize: 10, fontWeight: 700, color: 'var(--brand-gold)', letterSpacing: '0.08em' }}>{lead.language?.toUpperCase()}</span>
+            </div>
+            <div style={{ display: 'flex', flexWrap: 'wrap', gap: 8, marginBottom: 12 }}>
+              <span style={{ background: 'var(--brand-gold-glow)', color: 'var(--brand-gold-light)', padding: '3px 10px', borderRadius: 6, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>hotel</span>{lead.hotel}
+              </span>
+              <span style={{ background: 'var(--bg3)', color: 'var(--text3)', padding: '3px 10px', borderRadius: 6, fontSize: 11, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 12 }}>location_on</span>{lead.location}
+              </span>
+            </div>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+              <span style={{ display: 'inline-flex', alignItems: 'center', gap: 5, padding: '4px 10px', borderRadius: 20, fontSize: 11, fontWeight: 600, background: `${STATUS_COLORS[lead.status]}18`, color: STATUS_COLORS[lead.status] || '#8895a7' }}>
+                {lead.status}
+              </span>
+              <span style={{ fontWeight: 800, fontSize: 15, fontFamily: "'Outfit',sans-serif", color: lead.score >= 40 ? 'var(--orange)' : 'var(--text3)', background: lead.score >= 40 ? 'var(--orange-bg)' : 'transparent', padding: '2px 8px', borderRadius: 6 }}>
+                {lead.score || 0} Pkt.
+              </span>
+            </div>
+            {lead.notes && <div style={{ marginTop: 10, fontSize: 11, color: 'var(--text3)', borderTop: '1px solid var(--border)', paddingTop: 10, fontStyle: 'italic' }}>{lead.notes}</div>}
+          </div>
+        ))}
+        {!leads.length && <div style={{ color: 'var(--text3)', gridColumn: '1/-1', textAlign: 'center', padding: 40 }}>Keine Kontakte gefunden</div>}
+      </div>
+    </div>
+  );
+
+  // ── Page: Kampagnen ──
+  const renderKampagnen = () => {
+    const flowGroups = {};
+    leads.forEach(l => {
+      const key = l.lastEmailSent || 'Noch kein E-Mail';
+      if (!flowGroups[key]) flowGroups[key] = [];
+      flowGroups[key].push(l);
+    });
+    return (
+      <div>
+        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(280px, 1fr))', gap: 16 }}>
+          {Object.entries(flowGroups).map(([flow, fLeads]) => (
+            <div key={flow} className="card" style={{ padding: 20 }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 14 }}>
+                <div>
+                  <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 13, fontFamily: "'Outfit',sans-serif" }}>{FLOW_LABELS[flow] || flow}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 2 }}>{fLeads.length} Lead{fLeads.length !== 1 ? 's' : ''}</div>
+                </div>
+                <span style={{ background: 'var(--brand-gold-glow)', color: 'var(--brand-gold)', fontWeight: 800, fontSize: 20, fontFamily: "'Outfit',sans-serif", padding: '4px 12px', borderRadius: 8 }}>{fLeads.length}</span>
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+                {fLeads.slice(0, 4).map(l => (
+                  <div key={l._id} style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--bg3)', borderRadius: 8 }}>
+                    <div style={{ ...s.avatar, width: 26, height: 26, fontSize: 11, borderRadius: 6, flexShrink: 0 }}>{l.name?.charAt(0)?.toUpperCase()}</div>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <div style={{ fontSize: 12, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.name}</div>
+                      <div style={{ fontSize: 10, color: 'var(--text3)' }}>{l.hotel}</div>
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 600, color: STATUS_COLORS[l.status] || '#8895a7', flexShrink: 0 }}>{l.score}p</span>
+                  </div>
+                ))}
+                {fLeads.length > 4 && <div style={{ fontSize: 11, color: 'var(--text3)', textAlign: 'center', paddingTop: 4 }}>+{fLeads.length - 4} weitere</div>}
+              </div>
+            </div>
+          ))}
+          {!leads.length && <div style={{ color: 'var(--text3)', gridColumn: '1/-1', textAlign: 'center', padding: 40 }}>Keine aktiven Kampagnen</div>}
+        </div>
+      </div>
+    );
+  };
+
+  // ── Page: Berichte ──
+  const renderBerichte = () => {
+    const total = stats.total || 0;
+    const pct = (n) => total ? Math.round((n / total) * 100) : 0;
+    const bars = [
+      { label: 'Kalt', value: stats.cold || 0, color: '#8895a7' },
+      { label: 'Engagiert', value: stats.engaged || 0, color: '#e8b84a' },
+      { label: 'Mikro-Commitment', value: stats.microCommitment || 0, color: '#9a6ef5' },
+      { label: 'Anruf geplant', value: stats.callScheduled || 0, color: '#40c4c4' },
+      { label: 'Kein Interesse', value: stats.noInterest || 0, color: '#e85454' },
+      { label: 'Hohe Priorität', value: stats.highPriority || 0, color: '#e89040' },
+    ];
+    const avgScore = leads.length ? Math.round(leads.reduce((a, l) => a + (l.score || 0), 0) / leads.length) : 0;
+    const topLeads = [...leads].sort((a, b) => (b.score || 0) - (a.score || 0)).slice(0, 5);
+    return (
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 20 }}>
+        {/* Funnel Breakdown */}
+        <div className="card" style={{ padding: 24 }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, fontFamily: "'Outfit',sans-serif", marginBottom: 20 }}>Funnel-Übersicht</div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+            {bars.map(b => (
+              <div key={b.label}>
+                <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: 5 }}>
+                  <span style={{ fontSize: 12, color: 'var(--text2)' }}>{b.label}</span>
+                  <span style={{ fontSize: 12, fontWeight: 700, color: b.color }}>{b.value} ({pct(b.value)}%)</span>
+                </div>
+                <div style={{ height: 6, background: 'var(--bg3)', borderRadius: 3, overflow: 'hidden' }}>
+                  <div style={{ height: '100%', width: `${pct(b.value)}%`, background: b.color, borderRadius: 3, transition: 'width 0.6s var(--ease)' }} />
+                </div>
+              </div>
+            ))}
+          </div>
+        </div>
+
+        {/* Score Stats */}
+        <div className="card" style={{ padding: 24 }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, fontFamily: "'Outfit',sans-serif", marginBottom: 20 }}>Score-Analyse</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 20 }}>
+            {[
+              { label: 'Gesamt Leads', value: total, color: 'var(--brand-gold)' },
+              { label: 'Ø Score', value: avgScore, color: 'var(--purple)' },
+              { label: 'Hohe Priorität', value: stats.highPriority || 0, color: 'var(--orange)' },
+              { label: 'Conversion Rate', value: `${pct((stats.callScheduled || 0) + (stats.microCommitment || 0))}%`, color: 'var(--green)' },
+            ].map(m => (
+              <div key={m.label} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '14px 16px' }}>
+                <div style={{ fontSize: 22, fontWeight: 800, color: m.color, fontFamily: "'Outfit',sans-serif" }}>{m.value}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{m.label}</div>
+              </div>
+            ))}
+          </div>
+          <div style={{ fontWeight: 600, color: 'var(--text2)', fontSize: 12, marginBottom: 10, textTransform: 'uppercase', letterSpacing: '0.06em' }}>Top 5 Leads</div>
+          {topLeads.map((l, i) => (
+            <div key={l._id} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '7px 0', borderBottom: i < topLeads.length - 1 ? '1px solid var(--border-subtle)' : 'none' }}>
+              <span style={{ fontSize: 11, color: 'var(--text3)', width: 16, textAlign: 'center' }}>#{i + 1}</span>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 13, fontWeight: 600, color: 'var(--text)', whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>{l.name}</div>
+                <div style={{ fontSize: 11, color: 'var(--text3)' }}>{l.hotel}</div>
+              </div>
+              <span style={{ fontWeight: 800, fontSize: 14, color: l.score >= 40 ? 'var(--orange)' : 'var(--text2)', fontFamily: "'Outfit',sans-serif" }}>{l.score}</span>
+            </div>
+          ))}
+          {!topLeads.length && <div style={{ color: 'var(--text3)', fontSize: 13 }}>Noch keine Daten</div>}
+        </div>
+
+        {/* Email Activity */}
+        <div className="card" style={{ padding: 24, gridColumn: '1 / -1' }}>
+          <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, fontFamily: "'Outfit',sans-serif", marginBottom: 16 }}>E-Mail Aktivität</div>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(160px, 1fr))', gap: 12 }}>
+            {Object.entries(FLOW_LABELS).map(([key, label]) => {
+              const count = leads.filter(l => l.lastEmailSent === key).length;
+              return (
+                <div key={key} style={{ background: 'var(--bg3)', borderRadius: 10, padding: '14px 16px' }}>
+                  <div style={{ fontSize: 20, fontWeight: 800, color: 'var(--brand-gold)', fontFamily: "'Outfit',sans-serif" }}>{count}</div>
+                  <div style={{ fontSize: 11, color: 'var(--text3)', marginTop: 4 }}>{label}</div>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      </div>
+    );
+  };
+
+  // ── Page: Einstellungen ──
+  const renderEinstellungen = () => (
+    <div style={{ maxWidth: 560 }}>
+      <div className="card" style={{ padding: 28, marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, fontFamily: "'Outfit',sans-serif", marginBottom: 4 }}>Admin-Zugangsdaten</div>
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 20 }}>Änderungen erfordern einen Neustart des Servers (.env)</div>
+        {[
+          { key: 'adminEmail', label: 'Admin E-Mail', placeholder: 'admin@boorgen.com', type: 'email' },
+          { key: 'adminPassword', label: 'Admin Passwort', placeholder: '••••••••', type: 'password' },
+        ].map(f => (
+          <div key={f.key} style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>{f.label}</label>
+            <input type={f.type} placeholder={f.placeholder} value={settingsForm[f.key]} onChange={e => setSettingsForm({ ...settingsForm, [f.key]: e.target.value })} />
+          </div>
+        ))}
+      </div>
+      <div className="card" style={{ padding: 28, marginBottom: 20 }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, fontFamily: "'Outfit',sans-serif", marginBottom: 4 }}>E-Mail Konfiguration</div>
+        <div style={{ fontSize: 12, color: 'var(--text3)', marginBottom: 20 }}>Gmail App-Passwort für den Versand</div>
+        {[
+          { key: 'gmailUser', label: 'Gmail Adresse', placeholder: 'your@gmail.com', type: 'email' },
+          { key: 'gmailPass', label: 'App-Passwort', placeholder: '••••••••••••••••', type: 'password' },
+          { key: 'anaEmail', label: 'Ana Benachrichtigungs-E-Mail', placeholder: 'ana@boorgen.com', type: 'email' },
+        ].map(f => (
+          <div key={f.key} style={{ marginBottom: 14 }}>
+            <label style={{ fontSize: 11, fontWeight: 600, color: 'var(--text2)', textTransform: 'uppercase', letterSpacing: '0.05em', display: 'block', marginBottom: 6 }}>{f.label}</label>
+            <input type={f.type} placeholder={f.placeholder} value={settingsForm[f.key]} onChange={e => setSettingsForm({ ...settingsForm, [f.key]: e.target.value })} />
+          </div>
+        ))}
+      </div>
+      <div className="card" style={{ padding: 28 }}>
+        <div style={{ fontWeight: 700, color: 'var(--text)', fontSize: 15, fontFamily: "'Outfit',sans-serif", marginBottom: 16 }}>System-Info</div>
+        {[
+          { label: 'Backend', value: 'http://localhost:3000' },
+          { label: 'Frontend', value: 'http://localhost:5173' },
+          { label: 'Datenbank', value: 'MongoDB Atlas' },
+          { label: 'Socket.io', value: 'Verbunden ✓' },
+          { label: 'E-Mail', value: 'Gmail SMTP' },
+          { label: 'Version', value: '1.0.0' },
+        ].map(r => (
+          <div key={r.label} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 0', borderBottom: '1px solid var(--border-subtle)', fontSize: 13 }}>
+            <span style={{ color: 'var(--text3)' }}>{r.label}</span>
+            <span style={{ color: 'var(--text)', fontWeight: 500 }}>{r.value}</span>
+          </div>
+        ))}
+      </div>
+      {settingsMsg && <p style={{ marginTop: 12, color: 'var(--green)', fontSize: 13 }}>{settingsMsg}</p>}
+    </div>
+  );
 
   return (
     <div style={s.layout}>
-
-      {/* ── Sidebar ── */}
       <aside style={s.sidebar}>
+        <div style={s.sideAccent} />
         <div style={s.sideTop}>
           <div style={s.logoRow}>
-            <div style={s.logoIcon}>B</div>
+            <div style={s.logoIcon}><span style={s.logoLetter}>B</span></div>
             <div>
               <p style={s.logoText}>BOORGEN</p>
-              <p style={s.logoSub}>AI Outreach</p>
+              <p style={s.logoSub}>Deutschland GmbH</p>
             </div>
           </div>
-
+          <div style={s.sideDivider} />
           <nav style={s.nav}>
-            <div style={s.navItem}>
-              <span style={s.navIcon}>◈</span> Dashboard
-            </div>
+            {NAV.map(item => (
+              <div key={item.id}
+                onClick={() => setActivePage(item.id)}
+                style={{
+                  ...s.navItem,
+                  ...(activePage === item.id ? {} : s.navItemMuted),
+                  cursor: 'pointer',
+                }}>
+                <span className="material-symbols-outlined" style={s.navIcon}>{item.icon}</span>
+                {item.label}
+              </div>
+            ))}
           </nav>
         </div>
-
         <div style={s.sideBottom}>
-          <button
-            onClick={logout}
-            style={s.logoutBtn}
-          >
-            ← Sign out
+          <div style={s.statusCard}>
+            <div style={s.statusDot}>
+              <div style={s.greenDot} />
+              <span style={{ fontSize: 12, color: 'var(--text2)' }}>System aktiv</span>
+            </div>
+            <span style={{ fontSize: 11, color: 'var(--text3)' }}>{currentTime} Uhr</span>
+          </div>
+          <button onClick={logout} style={s.logoutBtn}>
+            <span className="material-symbols-outlined" style={{ fontSize: 16, marginRight: 6 }}>logout</span>
+            Abmelden
           </button>
         </div>
       </aside>
 
-      {/* ── Main ── */}
-      <main style={s.main}>
-
-        {/* Header */}
+      <main style={{ ...s.main, opacity: mounted ? 1 : 0, transform: mounted ? 'translateY(0)' : 'translateY(8px)', transition: 'all 0.5s var(--ease)' }}>
         <div style={s.header}>
           <div>
-            <h1 style={s.pageTitle}>Lead Outreach CRM</h1>
+            <h1 style={s.pageTitle}>{PAGE_TITLES[activePage]}</h1>
+            <p style={s.pageSub}>
+              <span className="material-symbols-outlined" style={{ fontSize: 14, verticalAlign: 'middle', marginRight: 4 }}>event</span>
+              {currentDate}
+            </p>
           </div>
-          <button
-            className="btn-primary"
-            onClick={() => setShowForm(!showForm)}
-            style={{ height: 42, padding: '0 20px' }}
-          >
-            {showForm ? '✕ Cancel' : '+ Add Lead'}
-          </button>
-        </div>
-
-        {/* Stats */}
-        <StatsBar stats={stats} />
-
-        {/* Add Lead Form */}
-        {showForm && (
-          <div className="card" style={{ marginBottom: 24 }}>
-            <AddLeadForm onSuccess={() => { setShowForm(false); refresh(); }} />
-          </div>
-        )}
-
-        {/* Filters */}
-        <div style={s.filterBar}>
-          <div style={s.searchWrap}>
-            <span style={s.searchIcon}>⌕</span>
-            <input
-              placeholder="Search name, email, hotel, location..."
-              value={search}
-              onChange={(e) => setSearch(e.target.value)}
-              style={{ paddingLeft: 36, background: 'var(--bg2)' }}
-            />
-          </div>
-          <select
-            value={statusFilter}
-            onChange={(e) => setStatus(e.target.value)}
-            style={{ width: 160, background: 'var(--bg2)' }}
-          >
-            <option value="">All Statuses</option>
-            <option value="Cold">Cold</option>
-            <option value="Engaged">Engaged</option>
-            <option value="Micro-Commitment">Micro-Commitment</option>
-            <option value="Qualified">Qualified</option>
-            <option value="Call Scheduled">Call Scheduled</option>
-            <option value="No Interest">No Interest</option>
-            <option value="Cold – Re-Engage">Cold – Re-Engage</option>
-            <option value="Closed / Lost">Closed / Lost</option>
-          </select>
-          {(search || statusFilter) && (
-            <button className="btn-ghost" onClick={() => { setSearch(''); setStatus(''); }} style={{ height: 42, padding: '0 16px' }}>
-              Clear
+          {activePage === 'dashboard' && (
+            <button className="btn-primary" onClick={() => setShowForm(!showForm)} style={s.addLeadBtn}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>{showForm ? 'close' : 'person_add'}</span>
+              {showForm ? 'Abbrechen' : 'Lead hinzufügen'}
             </button>
           )}
-          <span style={s.count}>
-            {loading ? 'Loading...' : `${leads.length} lead${leads.length !== 1 ? 's' : ''}`}
-          </span>
+          {activePage === 'kontakte' && (
+            <button className="btn-primary" onClick={() => { setActivePage('dashboard'); setShowForm(true); }} style={s.addLeadBtn}>
+              <span className="material-symbols-outlined" style={{ fontSize: 18 }}>person_add</span>
+              Lead hinzufügen
+            </button>
+          )}
         </div>
 
-        {/* Table */}
-        <LeadsTable leads={leads} onUpdated={refresh} />
+        {/* Dashboard view */}
+        {activePage === 'dashboard' && <>
+          <StatsBar stats={stats} />
+          {showForm && <div className="card" style={{ marginBottom: 24 }}><AddLeadForm onSuccess={() => { setShowForm(false); refresh(); }} /></div>}
+          <div style={s.filterBar}>
+            <div style={s.searchWrap}>
+              <span className="material-symbols-outlined" style={s.searchIcon}>search</span>
+              <input id="search-leads" placeholder="Name, E-Mail, Hotel, Standort suchen..." value={search}
+                onChange={e => setSearch(e.target.value)} style={{ paddingLeft: 40, background: 'var(--bg2)' }} />
+            </div>
+            <select id="status-filter" value={statusFilter} onChange={e => setStatus(e.target.value)} style={{ width: 180, background: 'var(--bg2)' }}>
+              <option value="">Alle Status</option>
+              <option value="Cold">Kalt</option>
+              <option value="Engaged">Engagiert</option>
+              <option value="Micro-Commitment">Mikro-Commitment</option>
+              <option value="Qualified">Qualifiziert</option>
+              <option value="Call Scheduled">Anruf geplant</option>
+              <option value="No Interest">Kein Interesse</option>
+              <option value="Cold – Re-Engage">Kalt – Reaktivieren</option>
+              <option value="Closed / Lost">Geschlossen / Verloren</option>
+            </select>
+            {(search || statusFilter) && (
+              <button className="btn-ghost" onClick={() => { setSearch(''); setStatus(''); }}
+                style={{ height: 42, padding: '0 16px', borderRadius: 10, display: 'flex', alignItems: 'center', gap: 4 }}>
+                <span className="material-symbols-outlined" style={{ fontSize: 15 }}>filter_alt_off</span> Zurücksetzen
+              </button>
+            )}
+            <span style={s.count}>
+              {loading
+                ? <span style={{ display: 'flex', alignItems: 'center', gap: 6 }}><span className="material-symbols-outlined" style={{ fontSize: 14, animation: 'spin 1s linear infinite' }}>sync</span>Laden...</span>
+                : <><span className="material-symbols-outlined" style={{ fontSize: 14, opacity: 0.5 }}>group</span>{` ${leads.length} Lead${leads.length !== 1 ? 's' : ''}`}</>
+              }
+            </span>
+          </div>
+          <LeadsTable leads={leads} onUpdated={refresh} />
+        </>}
+
+        {activePage === 'kontakte' && renderKontakte()}
+        {activePage === 'kampagnen' && renderKampagnen()}
+        {activePage === 'berichte' && renderBerichte()}
+        {activePage === 'einstellungen' && renderEinstellungen()}
+
+        <div style={s.footer}>
+          <span>© {new Date().getFullYear()} BOORGEN Deutschland GmbH · Möhrendorf, Deutschland</span>
+          <span style={{ margin: '0 8px', opacity: 0.3 }}>·</span>
+          <span>KI-gestütztes Outreach System</span>
+        </div>
       </main>
     </div>
   );
@@ -140,76 +443,46 @@ export default function Dashboard() {
 
 const s = {
   layout: { display: 'flex', minHeight: '100vh', background: 'var(--bg)' },
-
   sidebar: {
-    width: 240, flexShrink: 0,
-    background: 'var(--bg2)',
+    width: 260, flexShrink: 0,
+    background: 'linear-gradient(180deg, var(--bg2) 0%, #0c1120 100%)',
     borderRight: '1px solid var(--border)',
-    display: 'flex', flexDirection: 'column',
-    justifyContent: 'space-between',
-    padding: '28px 16px',
+    display: 'flex', flexDirection: 'column', justifyContent: 'space-between',
+    padding: '0 0 20px 0', position: 'relative', overflow: 'hidden',
   },
-  sideTop: { display: 'flex', flexDirection: 'column', gap: 32 },
-  logoRow: { display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 4 },
-  logoIcon: {
-    width: 36, height: 36, borderRadius: 9,
-    background: 'linear-gradient(135deg, #6366f1, #818cf8)',
-    display: 'flex', alignItems: 'center', justifyContent: 'center',
-    fontSize: 16, fontWeight: 800, color: '#fff',
-    boxShadow: '0 4px 12px rgba(99,102,241,0.35)',
-  },
-  logoText: { fontSize: 15, fontWeight: 800, color: 'var(--text)', letterSpacing: '0.06em' },
-  logoSub: { fontSize: 11, color: 'var(--text3)', marginTop: 1 },
-
+  sideAccent: { position: 'absolute', top: 0, left: 0, bottom: 0, width: 2, background: 'linear-gradient(180deg, var(--brand-gold) 0%, transparent 60%)' },
+  sideTop: { display: 'flex', flexDirection: 'column', padding: '28px 20px 0' },
+  logoRow: { display: 'flex', alignItems: 'center', gap: 12, paddingLeft: 4, marginBottom: 6 },
+  logoIcon: { width: 40, height: 40, borderRadius: 10, background: 'linear-gradient(145deg, #c9a84c, #a8872f)', display: 'flex', alignItems: 'center', justifyContent: 'center', boxShadow: '0 4px 16px rgba(201,168,76,0.25)' },
+  logoLetter: { fontSize: 18, fontWeight: 900, color: '#0a0f1a', fontFamily: "'Outfit',sans-serif" },
+  logoText: { fontSize: 16, fontWeight: 900, color: 'var(--text)', letterSpacing: '0.08em', fontFamily: "'Outfit',sans-serif" },
+  logoSub: { fontSize: 10, color: 'var(--brand-gold)', marginTop: 1, fontWeight: 500, letterSpacing: '0.05em' },
+  sideDivider: { height: 1, background: 'linear-gradient(90deg, var(--border-accent), transparent)', margin: '20px 0' },
   nav: { display: 'flex', flexDirection: 'column', gap: 4 },
   navItem: {
     display: 'flex', alignItems: 'center', gap: 10,
-    padding: '10px 12px', borderRadius: 8,
+    padding: '10px 14px', borderRadius: 10,
     fontSize: 13, fontWeight: 600, color: 'var(--text)',
-    background: 'var(--accent-glow)', cursor: 'default',
+    background: 'var(--brand-gold-glow)', cursor: 'pointer',
+    transition: 'all 0.2s var(--ease)',
+    border: '1px solid rgba(201,168,76,0.06)',
   },
-  navItemMuted: { background: 'transparent', color: 'var(--text3)', fontWeight: 500 },
-  navIcon: { fontSize: 14, width: 18, textAlign: 'center' },
-
-  sideBottom: { display: 'flex', flexDirection: 'column', gap: 8 },
+  navItemMuted: { background: 'transparent', color: 'var(--text3)', fontWeight: 500, border: '1px solid transparent' },
+  navIcon: { fontSize: 20, width: 20, textAlign: 'center', flexShrink: 0 },
+  sideBottom: { display: 'flex', flexDirection: 'column', gap: 10, padding: '0 20px' },
+  statusCard: { display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', background: 'rgba(62,201,122,0.04)', borderRadius: 8, border: '1px solid rgba(62,201,122,0.08)' },
   statusDot: { display: 'flex', alignItems: 'center', gap: 8 },
-  greenDot: {
-    width: 7, height: 7, borderRadius: '50%',
-    background: 'var(--green)',
-    boxShadow: '0 0 6px rgba(34,197,94,0.6)',
-  },
-  logoutBtn: {
-    background: 'transparent', color: 'var(--text3)',
-    border: '1px solid var(--border)', borderRadius: 8,
-    padding: '8px 14px', fontSize: 12, fontWeight: 500,
-    cursor: 'pointer', width: '100%', textAlign: 'left',
-    transition: 'color 0.2s',
-  },
-
-  main: { flex: 1, padding: '36px 40px', overflowY: 'auto', maxWidth: '100%' },
-
-  header: {
-    display: 'flex', justifyContent: 'space-between',
-    alignItems: 'flex-start', marginBottom: 28,
-  },
-  pageTitle: { fontSize: 26, fontWeight: 800, color: 'var(--text)' },
-  pageSub: { fontSize: 14, color: 'var(--text2)', marginTop: 4 },
-
-  filterBar: {
-    display: 'flex', gap: 12, marginBottom: 20,
-    alignItems: 'center', flexWrap: 'wrap',
-  },
-  searchWrap: { position: 'relative', flex: 1, minWidth: 240 },
-  searchIcon: {
-    position: 'absolute', left: 12, top: '50%',
-    transform: 'translateY(-50%)',
-    color: 'var(--text3)', fontSize: 16, pointerEvents: 'none',
-  },
-  count: { marginLeft: 'auto', fontSize: 13, color: 'var(--text3)', whiteSpace: 'nowrap' },
-
-  footer: {
-    marginTop: 40, textAlign: 'center',
-    fontSize: 12, color: 'var(--text3)',
-    borderTop: '1px solid var(--border)', paddingTop: 20,
-  },
+  greenDot: { width: 7, height: 7, borderRadius: '50%', background: 'var(--green)', boxShadow: '0 0 8px rgba(62,201,122,0.5)', animation: 'pulse-gold 2.5s ease infinite' },
+  logoutBtn: { background: 'transparent', color: 'var(--text3)', border: '1px solid var(--border)', borderRadius: 10, padding: '9px 14px', fontSize: 12, fontWeight: 500, cursor: 'pointer', width: '100%', textAlign: 'left', display: 'flex', alignItems: 'center', transition: 'all 0.2s var(--ease)' },
+  main: { flex: 1, padding: '36px 44px', overflowY: 'auto', maxWidth: '100%' },
+  header: { display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 28 },
+  pageTitle: { fontSize: 28, fontWeight: 800, color: 'var(--text)', fontFamily: "'Outfit',sans-serif", letterSpacing: '-0.01em' },
+  pageSub: { fontSize: 13, color: 'var(--text3)', marginTop: 6, display: 'flex', alignItems: 'center' },
+  addLeadBtn: { height: 44, padding: '0 22px', borderRadius: 11, display: 'flex', alignItems: 'center', gap: 8, fontFamily: "'Outfit',sans-serif", fontWeight: 700, fontSize: 14 },
+  filterBar: { display: 'flex', gap: 12, marginBottom: 20, alignItems: 'center', flexWrap: 'wrap' },
+  searchWrap: { position: 'relative', flex: 1, minWidth: 260 },
+  searchIcon: { position: 'absolute', left: 13, top: '50%', transform: 'translateY(-50%)', color: 'var(--text3)', fontSize: 18, pointerEvents: 'none' },
+  count: { marginLeft: 'auto', fontSize: 13, color: 'var(--text3)', whiteSpace: 'nowrap', display: 'flex', alignItems: 'center', gap: 6 },
+  avatar: { width: 34, height: 34, borderRadius: 8, background: 'var(--brand-gold-glow)', color: 'var(--brand-gold)', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 14, fontWeight: 700, fontFamily: "'Outfit',sans-serif", flexShrink: 0, border: '1px solid rgba(201,168,76,0.15)' },
+  footer: { marginTop: 44, textAlign: 'center', fontSize: 11, color: 'var(--text3)', borderTop: '1px solid var(--border)', paddingTop: 20, letterSpacing: '0.02em', display: 'flex', justifyContent: 'center', flexWrap: 'wrap' },
 };

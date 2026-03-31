@@ -9,14 +9,36 @@ const transporter = nodemailer.createTransport({
 });
 
 /**
- * Sends an email with retry logic (max 2 retries).
+ * Build tracking pixel HTML and tracked link for a lead.
  */
-async function sendEmail({ to, hotel, body, subject }, retries = 2) {
+function buildTracking(trackingId) {
+  const base = process.env.BACKEND_URL || `http://localhost:${process.env.PORT || 3000}`;
+  const pixel = `<img src="${base}/track/open/${trackingId}" width="1" height="1" style="display:none" alt="" />`;
+  const trackedLink = `${base}/track/${trackingId}`;
+  return { pixel, trackedLink };
+}
+
+/**
+ * Sends an email with tracking pixel + link, with retry logic (max 2 retries).
+ */
+async function sendEmail({ to, hotel, body, subject, trackingId }, retries = 2) {
+  let htmlBody = body.replace(/\n/g, '<br>');
+  let textBody = body;
+
+  if (trackingId) {
+    const { pixel, trackedLink } = buildTracking(trackingId);
+    // Replace placeholder configurator link with tracked link
+    textBody = body.replace('[Konfigurator öffnen]', trackedLink)
+                   .replace('[Open Configurator]', trackedLink);
+    htmlBody = textBody.replace(/\n/g, '<br>') + pixel;
+  }
+
   const mailOptions = {
     from: `BOORGEN Outreach <${process.env.GMAIL_USER}>`,
     to,
     subject: subject || `Quick idea for ${hotel}`,
-    text: body,
+    text: textBody,
+    html: `<div style="font-family:Arial,sans-serif;font-size:14px;line-height:1.6;color:#333">${htmlBody}</div>`,
   };
 
   for (let attempt = 1; attempt <= retries + 1; attempt++) {
@@ -29,10 +51,9 @@ async function sendEmail({ to, hotel, body, subject }, retries = 2) {
       if (attempt === retries + 1) {
         return { success: false, error: err.message };
       }
-      // Wait 2s before retry
       await new Promise((r) => setTimeout(r, 2000));
     }
   }
 }
 
-module.exports = { sendEmail };
+module.exports = { sendEmail, buildTracking };
